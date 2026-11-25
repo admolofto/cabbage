@@ -8,7 +8,7 @@ import { findAxisInference, findSnap, firstSurfaceHit, guideUnderCursor } from '
 const inch = inchFraction;
 
 /** A box 24" wide, 12" deep, and 6" tall with one corner on the origin. */
-const BOX: Board = { id: 'box', name: 'Box', min: [0, 0, 0], size: [inch(24), inch(12), inch(6)], thicknessAxis: 2 };
+const BOX: Board = { id: 'box', name: 'Box', min: [0, 0, 0], size: [inch(24), inch(12), inch(6)], thicknessAxis: 2, materialId: 'plywood' };
 const view = createTestView();
 
 describe('findSnap', () => {

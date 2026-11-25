@@ -204,9 +204,20 @@ kbd {
 /* Stage and viewport */
 
 .stage {
-  position: relative;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   overflow: hidden;
+}
+
+/* The 3D view and everything that floats over it. */
+.view-area {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  /* Lets the tool rail know how tall the view is, so it can fold when the cut list is open. */
+  container: view / size;
 }
 
 .viewport {
@@ -485,6 +496,23 @@ kbd {
   content: '';
 }
 
+/* A short view, as with the cut list open: the rail folds into two columns so every tool stays in reach. */
+
+@container view (max-height: 570px) {
+  .toolrail {
+    display: grid;
+    grid-template-columns: repeat(2, 44px);
+  }
+
+  .tool-button[data-divided] {
+    margin-top: 0;
+  }
+
+  .tool-button[data-divided]::before {
+    content: none;
+  }
+}
+
 /* Standard views */
 
 .viewbar {
@@ -711,11 +739,521 @@ kbd {
   color: var(--axis-y);
 }
 
+/* Project name and files */
+
+.topbar-start {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.projectbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.project-name {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-right: 4px;
+}
+
+.project-name input {
+  width: 168px;
+  min-width: 96px;
+  max-width: 260px;
+  height: 34px;
+  padding: 0 22px 0 9px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+/* Where the browser can, the box is as wide as the name, so the unsaved dot sits right after it. */
+@supports (field-sizing: content) {
+  .project-name input {
+    width: auto;
+    field-sizing: content;
+  }
+}
+
+.project-name input:hover {
+  border-color: var(--rule);
+}
+
+.project-name input:focus {
+  background: #fff;
+  border-color: var(--highlight);
+  outline: none;
+}
+
+.unsaved-dot {
+  position: absolute;
+  right: 9px;
+  width: 7px;
+  height: 7px;
+  background: var(--accent);
+  border-radius: 50%;
+}
+
+.quiet-button,
+.solid-button,
+.toggle-button {
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.quiet-button {
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+.quiet-button:hover:not(:disabled) {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.quiet-button:disabled {
+  color: var(--rule);
+  cursor: default;
+}
+
+.quiet-button.danger:hover {
+  background: #f7e3e1;
+  color: var(--danger);
+}
+
+.solid-button {
+  background: var(--accent);
+  color: #fff;
+}
+
+.solid-button:hover {
+  background: #346626;
+}
+
+.toggle-button {
+  background: var(--surface);
+  border-color: var(--rule);
+  color: var(--ink);
+}
+
+.toggle-button:hover,
+.toggle-button[aria-pressed='true'] {
+  background: var(--accent-wash);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Material for new boards, at the top left of the view */
+
+.stockbar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: calc(100% - 24px);
+}
+
+.stock-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 5px 6px 5px 12px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+}
+
+.stock-row .readout-label {
+  margin-right: 2px;
+  white-space: nowrap;
+}
+
+.stock-row select,
+.field select,
+.field input[type='text'],
+.material-form input[type='text'] {
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+}
+
+.field input[type='text']:focus,
+.material-form input[type='text']:focus {
+  background: #fff;
+  border-color: var(--highlight);
+  outline: none;
+}
+
+.material-form,
+.inspector,
+.dialog {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.material-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 280px;
+  max-width: 100%;
+  padding: 12px;
+}
+
+.material-form input[data-error] {
+  border-color: var(--danger);
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.form-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* Details of the selected boards, at the right of the view */
+
+.inspector {
+  position: absolute;
+  top: 64px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(264px, calc(100% - 24px));
+  max-height: calc(100% - 76px);
+  padding: 12px 14px 14px;
+  overflow: auto;
+}
+
+.inspector h2,
+.cutlist h2,
+.dialog h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+}
+
+.field > span:first-child {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.inspector-size {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.inspector-note {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.choices button {
+  min-height: 30px;
+  padding: 0 10px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.choices button:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+.choices button[aria-pressed='true'] {
+  background: var(--accent-wash);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Cut list, docked under the view */
+
+.cutlist {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  height: min(40%, 380px);
+  min-height: 180px;
+  background: var(--surface);
+  border-top: 1px solid var(--rule);
+}
+
+.cutlist-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 4px 6px 4px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.cutlist-summary {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.cutlist-project {
+  display: none;
+}
+
+.cutlist-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.cutlist-body {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 14px 16px;
+  overflow: auto;
+}
+
+.cutlist-empty {
+  margin: 18px 0;
+  color: var(--ink-soft);
+}
+
+.cutlist-table {
+  width: 100%;
+  max-width: 980px;
+  margin-top: 12px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-variant-numeric: tabular-nums;
+}
+
+.col-quantity {
+  width: 6%;
+}
+
+.col-part {
+  width: 32%;
+}
+
+.col-size {
+  width: 12%;
+}
+
+.col-grain {
+  width: 14%;
+}
+
+.col-banding {
+  width: 24%;
+}
+
+.cutlist-table caption {
+  padding: 0 0 5px;
+  text-align: left;
+}
+
+.cutlist-table caption strong {
+  margin-right: 10px;
+  font-size: 14px;
+}
+
+.cutlist-table caption span {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.cutlist-table th,
+.cutlist-table td {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.cutlist-table th {
+  border-bottom-color: var(--ink-soft);
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cutlist-table .number {
+  text-align: right;
+}
+
+.cutlist-table tbody tr {
+  cursor: pointer;
+}
+
+.cutlist-table tbody tr:hover {
+  background: var(--paper);
+}
+
+.cutlist-table tbody tr[data-selected] {
+  background: #e3edf9;
+}
+
+.part-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.part-name input {
+  flex: 0 1 300px;
+  min-width: 90px;
+  height: 26px;
+  padding: 0 6px;
+  margin-left: -7px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+.part-name input:hover {
+  border-color: var(--rule);
+}
+
+.part-name input:focus {
+  background: #fff;
+  border-color: var(--highlight);
+  outline: none;
+}
+
+.print-name {
+  display: none;
+}
+
+.warning-chip {
+  flex: none;
+  padding: 1px 8px;
+  background: #fbefd5;
+  border: 1px solid #e6c98a;
+  border-radius: 999px;
+  color: #7a5200;
+  font-size: 12px;
+}
+
+/* Short messages and questions */
+
+.notice {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  margin: 0;
+  padding: 7px 14px;
+  background: var(--ink);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  color: #fff;
+  font-size: 13px;
+  translate: -50% 0;
+  white-space: nowrap;
+}
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(31 43 36 / 28%);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(420px, 100%);
+  padding: 18px 18px 14px;
+}
+
+.dialog h2 {
+  font-size: 17px;
+}
+
+.dialog p {
+  margin: 0 0 6px;
+  color: var(--ink-soft);
+}
+
 /* Narrow screens: tablets held upright and phones */
+
+@media (max-width: 1340px) {
+  .chip {
+    display: none;
+  }
+}
+
+@media (max-width: 1180px) {
+  .precision-label,
+  .brand-name {
+    display: none;
+  }
+
+  .project-name input {
+    width: 130px;
+  }
+}
 
 @media (max-width: 1000px) {
   .readout-grid {
     display: none;
+  }
+
+  .topbar {
+    flex-wrap: wrap;
   }
 }
 
@@ -772,5 +1310,85 @@ kbd {
 @media (max-height: 620px) {
   .tool-button {
     height: 34px;
+  }
+}
+
+/* Printing: with the cut list open, the page prints as the cut list and nothing else. */
+
+@media print {
+  html,
+  body,
+  #root {
+    height: auto;
+  }
+
+  :root,
+  body {
+    overflow: visible;
+    background: #fff;
+  }
+
+  .app[data-cutlist] {
+    display: block;
+    height: auto;
+    overflow: visible;
+    background: #fff;
+  }
+
+  .app[data-cutlist] .topbar,
+  .app[data-cutlist] .statusbar,
+  .app[data-cutlist] .view-area,
+  .app[data-cutlist] .dialog-backdrop,
+  .cutlist-actions,
+  .cutlist-summary,
+  .part-name input {
+    display: none;
+  }
+
+  .app[data-cutlist] .stage {
+    display: block;
+    overflow: visible;
+  }
+
+  .cutlist {
+    display: block;
+    height: auto;
+    background: #fff;
+    border: 0;
+  }
+
+  .cutlist-header {
+    justify-content: space-between;
+    padding: 0 0 8px;
+    border-bottom: 2px solid #000;
+  }
+
+  .cutlist h2 {
+    font-size: 20px;
+  }
+
+  .cutlist-project,
+  .print-name {
+    display: inline;
+  }
+
+  .cutlist-body {
+    padding: 0;
+    overflow: visible;
+  }
+
+  .cutlist-table {
+    max-width: none;
+    margin-top: 18px;
+    break-inside: avoid;
+  }
+
+  .cutlist-table tbody tr[data-selected] {
+    background: none;
+  }
+
+  .warning-chip {
+    border-color: #000;
+    color: #000;
   }
 }

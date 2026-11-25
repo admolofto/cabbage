@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { boardDimensions } from '../core/board';
 import type { Editor, EditorState, ToolId } from '../core/editor';
 import { createSampleCabinet } from '../core/sample-cabinet';
@@ -15,9 +15,13 @@ import {
   type UnitSettings,
 } from '../core/units';
 import type { ToolManager } from '../tools/tool-manager';
+import { CutListPanel } from './CutListPanel';
 import type { ViewName } from '../viewport/camera-math';
 import type { FloorPoint } from '../viewport/engine';
 import { Viewport, type ViewportHandle } from '../viewport/Viewport';
+import { Inspector } from './Inspector';
+import { ProjectBar, ReplaceDialog, useProject } from './ProjectBar';
+import { StockPicker } from './StockPicker';
 import {
   BoardIcon,
   CloseIcon,
@@ -37,7 +41,7 @@ import {
 
 const HELP_SEEN_KEY = 'cabbage.help-seen';
 /** Changes when the controls change enough that the card is worth showing once more. */
-const HELP_VERSION = 'edit-boards';
+const HELP_VERSION = 'cut-list';
 
 const VIEWS: readonly { view: ViewName; label: string }[] = [
   { view: 'front', label: 'Front' },
@@ -108,8 +112,16 @@ export function App({ editor, tools }: AppProps) {
   const [floorPoint, setFloorPoint] = useState<FloorPoint | null>(null);
   const [gridMinor, setGridMinor] = useState<Length | null>(null);
   const [helpOpen, setHelpOpen] = useState(() => !helpSeenBefore());
+  const [cutListOpen, setCutListOpen] = useState(false);
   const viewportRef = useRef<ViewportHandle>(null);
-  const { units, tool } = state;
+  const { units, tool, document: model, selection } = state;
+
+  const fitView = useCallback(() => viewportRef.current?.fit(), []);
+  const project = useProject(editor, fitView);
+  const selectedBoards = useMemo(
+    () => model.boards.filter((board) => selection.has(board.id)),
+    [model.boards, selection],
+  );
 
   const closeHelp = useCallback(() => {
     setHelpOpen(false);
@@ -127,7 +139,16 @@ export function App({ editor, tools }: AppProps) {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (isTypingTarget(event.target)) return;
+      // File keys work even while typing in a box, and never reach the browser's own Save and Open.
+      const fileKey = (event.ctrlKey || event.metaKey) && !event.altKey ? event.key.toLowerCase() : '';
+      if (fileKey === 's' || fileKey === 'o') {
+        event.preventDefault();
+        if (event.repeat) return;
+        if (fileKey === 's') void project.save(event.shiftKey);
+        else project.request('open');
+        return;
+      }
+      if (isTypingTarget(event.target) || project.asking) return;
       // Holding a modifier key down repeats it. Only the first press counts.
       if (event.repeat && (event.key === 'Control' || event.key === 'Meta')) return;
       // A focused button keeps Space and Enter for itself.
@@ -145,6 +166,9 @@ export function App({ editor, tools }: AppProps) {
       if (!used && !command && !event.altKey) {
         if (event.key.toLowerCase() === 'f') {
           viewportRef.current?.fit();
+          used = true;
+        } else if (event.key.toLowerCase() === 'l') {
+          setCutListOpen((open) => !open);
           used = true;
         } else if (event.key === 'Escape') {
           closeHelp();
@@ -166,15 +190,18 @@ export function App({ editor, tools }: AppProps) {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('click', onClick);
     };
-  }, [editor, tools, closeHelp]);
+  }, [editor, tools, closeHelp, project]);
 
   return (
-    <div className="app">
+    <div className="app" data-cutlist={cutListOpen || undefined}>
       <header className="topbar">
-        <div className="brand">
-          <LogoMark />
-          <span className="brand-name">Cabbage</span>
-          <span className="chip">Milestone 3 preview</span>
+        <div className="topbar-start">
+          <div className="brand">
+            <LogoMark />
+            <span className="brand-name">Cabbage</span>
+            <span className="chip">Milestone 4 preview</span>
+          </div>
+          <ProjectBar editor={editor} state={state} project={project} />
         </div>
         <div className="topbar-controls">
           <div className="history-controls">
@@ -202,6 +229,15 @@ export function App({ editor, tools }: AppProps) {
           <UnitControls units={units} onChange={(change) => editor.setUnits(change)} />
           <button
             type="button"
+            className="toggle-button"
+            aria-pressed={cutListOpen}
+            title="Cut list (L)"
+            onClick={() => setCutListOpen((open) => !open)}
+          >
+            Cut list
+          </button>
+          <button
+            type="button"
             className="icon-button"
             aria-label="Show controls"
             aria-pressed={helpOpen}
@@ -214,69 +250,97 @@ export function App({ editor, tools }: AppProps) {
       </header>
 
       <main className="stage">
-        <Viewport
-          ref={viewportRef}
-          editor={editor}
-          tools={tools}
-          onFloorPoint={setFloorPoint}
-          onGridChange={setGridMinor}
-        />
+        <div className="view-area">
+          <Viewport
+            ref={viewportRef}
+            editor={editor}
+            tools={tools}
+            onFloorPoint={setFloorPoint}
+            onGridChange={setGridMinor}
+          />
 
-        <nav className="toolrail" aria-label="Tools">
-          {TOOLS.map(({ id, label, key, Icon }) => (
+          <nav className="toolrail" aria-label="Tools">
+            {TOOLS.map(({ id, label, key, Icon }) => (
+              <button
+                key={id}
+                type="button"
+                className="tool-button"
+                aria-label={label}
+                aria-pressed={tool === id}
+                title={`${label} (${key})`}
+                data-divided={id === 'orbit' || undefined}
+                onClick={() => editor.setTool(id)}
+              >
+                <Icon />
+              </button>
+            ))}
             <button
-              key={id}
               type="button"
               className="tool-button"
-              aria-label={label}
-              aria-pressed={tool === id}
-              title={`${label} (${key})`}
-              data-divided={id === 'orbit' || undefined}
-              onClick={() => editor.setTool(id)}
+              aria-label="Fit model in view"
+              title="Fit model in view (F)"
+              data-divided
+              onClick={() => viewportRef.current?.fit()}
             >
-              <Icon />
+              <FitIcon />
             </button>
-          ))}
-          <button
-            type="button"
-            className="tool-button"
-            aria-label="Fit model in view"
-            title="Fit model in view (F)"
-            data-divided
-            onClick={() => viewportRef.current?.fit()}
-          >
-            <FitIcon />
-          </button>
-        </nav>
+          </nav>
 
-        <div className="viewbar" role="group" aria-label="Standard views">
-          {VIEWS.map(({ view, label }) => (
-            <button
-              key={view}
-              type="button"
-              className="view-button"
-              title={`${label} view`}
-              onClick={() => viewportRef.current?.showView(view)}
-            >
-              {label}
-            </button>
-          ))}
+          <div className="viewbar" role="group" aria-label="Standard views">
+            {VIEWS.map(({ view, label }) => (
+              <button
+                key={view}
+                type="button"
+                className="view-button"
+                title={`${label} view`}
+                onClick={() => viewportRef.current?.showView(view)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {state.document.boards.length === 0 && !helpOpen && SELECTION_TOOLS.has(tool) && (
+            <div className="empty-card">
+              <p>
+                <strong>Nothing here yet.</strong> Press <kbd>B</kbd> and click two corners on the floor to draw a
+                board.
+              </p>
+              <button type="button" className="text-button" onClick={addSampleCabinet}>
+                Add a sample cabinet
+              </button>
+            </div>
+          )}
+
+          <StockPicker editor={editor} stock={state.stock} materials={model.materials} units={units} />
+
+          {selectedBoards.length > 0 && !helpOpen && (
+            <Inspector editor={editor} boards={selectedBoards} materials={model.materials} units={units} />
+          )}
+
+          {helpOpen && <HelpCard onClose={closeHelp} onAddSample={addSampleCabinet} />}
+
+          {project.notice && (
+            <p className="notice" role="status">
+              {project.notice}
+            </p>
+          )}
         </div>
 
-        {state.document.boards.length === 0 && !helpOpen && SELECTION_TOOLS.has(tool) && (
-          <div className="empty-card">
-            <p>
-              <strong>Nothing here yet.</strong> Press <kbd>B</kbd> and click two corners on the floor to draw a
-              board.
-            </p>
-            <button type="button" className="text-button" onClick={addSampleCabinet}>
-              Add a sample cabinet
-            </button>
-          </div>
+        {cutListOpen && (
+          <CutListPanel
+            editor={editor}
+            document={model}
+            selection={selection}
+            units={units}
+            onClose={() => setCutListOpen(false)}
+          />
         )}
-
-        {helpOpen && <HelpCard onClose={closeHelp} onAddSample={addSampleCabinet} />}
       </main>
+
+      {project.asking && (
+        <ReplaceDialog kind={project.asking} unsaved={state.unsaved} name={model.name} project={project} />
+      )}
 
       <footer className="statusbar">
         <span className="status-hint">{NAVIGATION_HINTS[tool] ?? state.hint}</span>
@@ -470,6 +534,26 @@ function HelpCard({ onClose, onAddSample }: { onClose: () => void; onAddSample: 
       <p>
         Click a board or guide. Shift and click adds or removes. Drag a box to the right for what is inside
         it, to the left for anything it touches. <kbd>Delete</kbd> removes the selection.
+      </p>
+
+      <h3>Board details</h3>
+      <p>
+        Select boards to name them, pick their material, set the grain, and band edges. Banded edges show
+        darker. The material and thickness for new boards are picked at the top left.
+      </p>
+
+      <h3>
+        Cut list <kbd>L</kbd>
+      </h3>
+      <p>
+        Lists every board as a part, with identical parts counted together. Click a line to select its boards.
+        Type in the Part column to rename them all. Export it for a spreadsheet, or print it.
+      </p>
+
+      <h3>Files</h3>
+      <p>
+        <kbd>Ctrl</kbd> <kbd>S</kbd> saves the project to a file and <kbd>Ctrl</kbd> <kbd>O</kbd> opens one. Your
+        work is also kept in this browser as you go.
       </p>
 
       <h3>Getting around</h3>

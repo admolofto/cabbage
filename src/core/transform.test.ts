@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Board } from './board';
-import { parseDocument } from './document';
+import { EMPTY_DOCUMENT, parseDocument } from './document';
 import { parseLength } from './parse-length';
 import { faceCorners, pullBoard, quarterTurnsBetween, rotateBoardQuarter, rotatePointQuarter } from './transform';
 import { inchFraction, mm } from './units';
 
 const inch = inchFraction;
-const SHELF: Board = { id: 's', name: 'Shelf', min: [inch(2), inch(1), inch(10)], size: [inch(30), inch(11), inch(0, 3, 4)], thicknessAxis: 2 };
+const SHELF: Board = { id: 's', name: 'Shelf', min: [inch(2), inch(1), inch(10)], size: [inch(30), inch(11), inch(0, 3, 4)], thicknessAxis: 2, materialId: 'plywood' };
 
 describe('pullBoard', () => {
   it('moves the high face and leaves the low face alone', () => {
@@ -94,7 +94,7 @@ describe('sums in typed measurements', () => {
 
 describe('guides in saved models', () => {
   it('loads a model saved before guides existed', () => {
-    expect(parseDocument({ version: 1, boards: [] })).toEqual({ version: 1, boards: [], guides: [] });
+    expect(parseDocument({ version: 1, boards: [] })).toEqual(EMPTY_DOCUMENT);
   });
 
   it('loads guides and refuses damaged ones', () => {

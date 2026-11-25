@@ -60,6 +60,30 @@ describe('drawing a board with the mouse', () => {
     expect(editor.getState().undoLabel).toBe('Draw board');
   });
 
+  it('makes a standing side from a thin rectangle pulled up, and knows which way it is thick', () => {
+    click([0, 0, 0]);
+    move([inch(3), inch(8), 0]);
+    type('3/4, 12');
+    key('Enter');
+    type('36');
+    key('Enter');
+    expect(boards()[0]).toMatchObject({ size: [SHEET, inch(12), inch(36)], thicknessAxis: 0, materialId: 'plywood' });
+    // Retyping still corrects the height it was pulled to.
+    expect(measurement()).toMatchObject({ label: 'Thickness', value: '36"' });
+    type('30');
+    key('Enter');
+    expect(boards()[0]).toMatchObject({ size: [SHEET, inch(12), inch(30)], thicknessAxis: 0 });
+  });
+
+  it('draws with the material and thickness picked for new boards', () => {
+    editor.setStock({ materialId: 'mdf', thickness: inch(0, 1, 2) });
+    click([0, 0, 0]);
+    click([inch(24), inch(12), 0]);
+    expect(measurement()).toMatchObject({ label: 'Thickness', value: '1/2"' });
+    key('Enter');
+    expect(boards()[0]).toMatchObject({ size: [inch(24), inch(12), inch(0, 1, 2)], materialId: 'mdf' });
+  });
+
   it('shows the size while the second corner is being placed', () => {
     click([0, 0, 0]);
     move([inch(24), inch(12), 0]);
@@ -112,7 +136,7 @@ describe('drawing a board with the mouse', () => {
 });
 
 describe('snapping while drawing', () => {
-  const BOX: Board = { id: 'box', name: 'Box', min: [0, 0, 0], size: [inch(24), inch(12), inch(6)], thicknessAxis: 2 };
+  const BOX: Board = { id: 'box', name: 'Box', min: [0, 0, 0], size: [inch(24), inch(12), inch(6)], thicknessAxis: 2, materialId: 'plywood' };
 
   beforeEach(() => editor.addBoards([BOX], 'Add box'));
 
@@ -308,7 +332,7 @@ describe('keys while drawing', () => {
 });
 
 describe('selecting', () => {
-  const BOX: Board = { id: 'box', name: 'Box', min: [0, 0, 0], size: [inch(24), inch(12), inch(6)], thicknessAxis: 2 };
+  const BOX: Board = { id: 'box', name: 'Box', min: [0, 0, 0], size: [inch(24), inch(12), inch(6)], thicknessAxis: 2, materialId: 'plywood' };
   const OTHER: Board = { ...BOX, id: 'other', name: 'Other', min: [inch(40), 0, 0] };
   const onBox: Vec3L = [inch(12), inch(6), inch(6)];
   const onOther: Vec3L = [inch(52), inch(6), inch(6)];

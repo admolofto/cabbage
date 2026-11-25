@@ -1,10 +1,12 @@
-import type { Board } from './board';
+import { edgeFaces, faceAxis, tidyBoard, type Board, type FaceIndex } from './board';
 import {
   EMPTY_DOCUMENT,
   addBoards,
+  cleanProjectName,
   parseDocument,
   removeItems,
   replaceBoard,
+  updateBoards,
   type CabbageDocument,
 } from './document';
 import {
@@ -20,16 +22,24 @@ import {
   type History,
 } from './history';
 import {
+  allMaterials,
+  createMaterial,
+  defaultStock,
+  findMaterial,
+  stockInSystem,
+  type Material,
+  type Stock,
+} from './materials';
+import {
   DEFAULT_UNIT_SETTINGS,
   IMPERIAL_PRECISIONS,
   METRIC_PRECISIONS,
   NM_PER_INCH,
   NM_PER_MM,
-  inchFraction,
-  mm,
   type Length,
   type UnitSettings,
 } from './units';
+import type { Axis } from './vec';
 
 export type ToolId = 'select' | 'board' | 'pull' | 'move' | 'rotate' | 'tape' | 'orbit' | 'pan';
 
@@ -53,6 +63,10 @@ export interface EditorState {
   hovered: string | null;
   tool: ToolId;
   units: UnitSettings;
+  /** What the next board drawn is made of, and how thick it starts out. */
+  stock: Stock;
+  /** True when the model has changes that are not in a file yet. */
+  unsaved: boolean;
   measurement: MeasurementState;
   hint: string;
 }
@@ -65,6 +79,9 @@ export interface EditorStorage {
 
 const DOCUMENT_KEY = 'cabbage.document';
 const UNITS_KEY = 'cabbage.units';
+const STOCK_KEY = 'cabbage.stock';
+/** Holds "yes" while the model in this browser matches the file it was last saved to or opened from. */
+const IN_FILE_KEY = 'cabbage.in-file';
 const EMPTY_SELECTION: ReadonlySet<string> = new Set();
 const NO_MEASUREMENT: MeasurementState = { label: 'Measurement', value: '', typed: null, error: false };
 
@@ -91,9 +108,21 @@ export function parseUnitSettings(raw: string | null): UnitSettings {
   }
 }
 
-/** Thickness a new board gets until a material library exists: 3/4" or 18 mm. */
-export function defaultThickness(units: UnitSettings): Length {
-  return units.system === 'imperial' ? inchFraction(0, 3, 4) : mm(18);
+/** Accepts only a well-formed saved stock. Anything else falls back to the usual sheet for the unit system. */
+export function parseStock(raw: string | null, units: UnitSettings): Stock {
+  const fallback = defaultStock(units.system);
+  if (!raw) return fallback;
+  try {
+    const saved = JSON.parse(raw) as Partial<Stock> | null;
+    if (!saved || typeof saved !== 'object') return fallback;
+    const thickness = saved.thickness;
+    return {
+      materialId: typeof saved.materialId === 'string' ? saved.materialId : fallback.materialId,
+      thickness: Number.isSafeInteger(thickness) && (thickness as number) > 0 ? (thickness as number) : fallback.thickness,
+    };
+  } catch {
+    return fallback;
+  }
 }
 
 /** The smallest step a freely dragged length lands on: the display precision. */
@@ -128,16 +157,25 @@ export function roundSteps(units: UnitSettings): Length[] {
 export class Editor {
   private history: History<CabbageDocument>;
   private state: EditorState;
+  /** The model as it stood when it was last written to or read from a file. */
+  private saved: CabbageDocument | null = null;
   private readonly listeners = new Set<() => void>();
 
   constructor(private readonly storage: EditorStorage | null = null) {
     this.history = createHistory(this.loadDocument());
+    // A model that was safely in a file when the page was left still is.
+    if (this.read(IN_FILE_KEY) === 'yes') this.saved = this.history.present;
+    const units = parseUnitSettings(this.read(UNITS_KEY));
+    const stock = parseStock(this.read(STOCK_KEY), units);
     this.state = {
       ...this.historyState(),
       selection: EMPTY_SELECTION,
       hovered: null,
       tool: 'select',
-      units: parseUnitSettings(this.read(UNITS_KEY)),
+      units,
+      // A stock naming a material this project does not have falls back to the default one.
+      stock: { ...stock, materialId: findMaterial(this.history.present.materials, stock.materialId).id },
+      unsaved: this.isUnsaved(),
       measurement: NO_MEASUREMENT,
       hint: '',
     };
@@ -184,6 +222,92 @@ export class Editor {
     return true;
   }
 
+  // Board details
+
+  /** Changes the selected boards, or the ones named, as one undo step. Does nothing when nothing would change. */
+  private changeBoards(ids: Iterable<string>, label: string, change: (board: Board) => Board): boolean {
+    const wanted = new Set(ids);
+    const next = updateBoards(this.state.document, wanted, change);
+    if (next === this.state.document) return false;
+    const count = next.boards.filter((board, index) => board !== this.state.document.boards[index]).length;
+    this.commitDocument(next, count === 1 ? label : `${label} of ${count} boards`);
+    return true;
+  }
+
+  renameBoards(ids: Iterable<string>, name: string): boolean {
+    const cleaned = name.replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (cleaned === '') return false;
+    return this.changeBoards(ids, 'Rename', (board) => (board.name === cleaned ? board : { ...board, name: cleaned }));
+  }
+
+  setBoardMaterial(ids: Iterable<string>, materialId: string): boolean {
+    const id = findMaterial(this.state.document.materials, materialId).id;
+    return this.changeBoards(ids, 'Change material', (board) =>
+      board.materialId === id ? board : { ...board, materialId: id },
+    );
+  }
+
+  /** Runs the grain along an axis, on every board named whose face has that axis. Null goes back to the longer side. */
+  setBoardGrain(ids: Iterable<string>, axis: Axis | null): boolean {
+    return this.changeBoards(ids, 'Change grain', (board) => {
+      if (axis === null) return board.grain === undefined ? board : tidyBoard({ ...board, grain: undefined });
+      if (axis === board.thicknessAxis || board.grain === axis) return board;
+      return tidyBoard({ ...board, grain: axis });
+    });
+  }
+
+  /** Bands or unbands one side, on every board named where that side is an edge. */
+  setBoardBanding(ids: Iterable<string>, face: FaceIndex, banded: boolean): boolean {
+    return this.changeBoards(ids, banded ? 'Band edge' : 'Remove banding', (board) => {
+      if (faceAxis(face) === board.thicknessAxis || !edgeFaces(board).includes(face)) return board;
+      const has = board.banding?.includes(face) ?? false;
+      if (has === banded) return board;
+      const banding = banded ? [...(board.banding ?? []), face] : (board.banding ?? []).filter((other) => other !== face);
+      return tidyBoard({ ...board, banding });
+    });
+  }
+
+  /** Adds a material to the project and returns it, or null when the name is empty or already taken. */
+  addMaterial(name: string, grain: boolean): Material | null {
+    const { document } = this.state;
+    const material = createMaterial(name, grain, document.materials);
+    if (!material) return null;
+    const taken = allMaterials(document.materials).some(
+      (other) => other.name.toLowerCase() === material.name.toLowerCase(),
+    );
+    if (taken) return null;
+    this.commitDocument({ ...document, materials: [...document.materials, material] }, 'Add material');
+    return material;
+  }
+
+  // The project as a whole
+
+  renameProject(name: string): void {
+    const cleaned = cleanProjectName(name);
+    if (cleaned === this.state.document.name) return;
+    this.commitDocument({ ...this.state.document, name: cleaned }, 'Rename project');
+  }
+
+  /**
+   * Replaces the whole model with another one: a file that was opened, or an
+   * empty project. Undo does not reach back across it, so the caller makes
+   * sure nothing unsaved is lost first.
+   */
+  openDocument(document: CabbageDocument, fromFile: boolean): void {
+    this.history = createHistory(document);
+    this.saved = fromFile ? document : null;
+    this.state = { ...this.state, selection: EMPTY_SELECTION, hovered: null, measurement: NO_MEASUREMENT };
+    this.afterDocumentChange();
+    this.setStock(this.state.stock);
+  }
+
+  /** Records that the model as it stands now is safely in a file. */
+  markSaved(): void {
+    this.saved = this.state.document;
+    this.write(IN_FILE_KEY, 'yes');
+    this.update({ unsaved: this.isUnsaved() });
+  }
+
   undo(): void {
     if (!canUndo(this.history)) return;
     this.history = undo(this.history);
@@ -226,7 +350,18 @@ export class Editor {
   setUnits(change: Partial<UnitSettings>): void {
     const units = { ...this.state.units, ...change };
     this.write(UNITS_KEY, JSON.stringify(units));
-    this.update({ units });
+    // The stock follows the units: 3/4" becomes 18 mm, and back.
+    const stock = stockInSystem(this.state.stock, this.state.units.system, units.system);
+    if (stock !== this.state.stock) this.write(STOCK_KEY, JSON.stringify(stock));
+    this.update({ units, stock });
+  }
+
+  setStock(change: Partial<Stock>): void {
+    const merged = { ...this.state.stock, ...change };
+    const stock = { ...merged, materialId: findMaterial(this.state.document.materials, merged.materialId).id };
+    if (stock.materialId === this.state.stock.materialId && stock.thickness === this.state.stock.thickness) return;
+    this.write(STOCK_KEY, JSON.stringify(stock));
+    this.update({ stock });
   }
 
   setHint(hint: string): void {
@@ -263,7 +398,15 @@ export class Editor {
     const selection = new Set([...this.state.selection].filter((id) => ids.has(id)));
     const hovered = this.state.hovered && ids.has(this.state.hovered) ? this.state.hovered : null;
     this.write(DOCUMENT_KEY, JSON.stringify(document));
-    this.update({ ...this.historyState(), selection, hovered });
+    this.write(IN_FILE_KEY, document === this.saved ? 'yes' : 'no');
+    this.update({ ...this.historyState(), selection, hovered, unsaved: this.isUnsaved() });
+  }
+
+  /** An empty model has nothing to lose. Anything else counts until it has been written to a file. */
+  private isUnsaved(): boolean {
+    const document = this.history.present;
+    if (document === this.saved) return false;
+    return document.boards.length > 0 || document.guides.length > 0 || document.materials.length > 0;
   }
 
   private update(change: Partial<EditorState>): void {

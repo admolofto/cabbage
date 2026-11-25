@@ -1,6 +1,6 @@
-import { boxFromCorners, type Board, type Box } from '../core/board';
+import { boxFromCorners, tidyBoard, type Board, type Box } from '../core/board';
 import { createId, nextBoardName, type CabbageDocument } from '../core/document';
-import { defaultThickness, type Editor } from '../core/editor';
+import type { Editor } from '../core/editor';
 import { parseLength, parseLengthList } from '../core/parse-length';
 import { formatLength, type Length } from '../core/units';
 import { AXIS_NAMES, otherAxes, withAxis, type Axis, type Vec3L } from '../core/vec';
@@ -64,6 +64,8 @@ type Phase = IdlePhase | FacePhase | ThicknessPhase;
 interface LastBoard {
   board: Board;
   face: Box;
+  /** The axis the face was pulled along, which is not always the board's thickness. */
+  axis: Axis;
   direction: 1 | -1;
   /** The model as it stood with this board in it. Any other change ends the chance to correct it. */
   document: CabbageDocument;
@@ -232,9 +234,11 @@ export class BoardTool implements Tool {
     const last = this.correctable();
     if (last) {
       // Retyping right after drawing corrects the board instead of starting over.
-      const { face, direction } = last;
-      const axis = last.board.thicknessAxis;
-      const board = { ...last.board, ...this.solid(face, axis, direction * sign(value) * Math.abs(value)) };
+      const { face, direction, axis } = last;
+      const board = tidyBoard({
+        ...last.board,
+        ...this.solid(face, axis, direction * sign(value) * Math.abs(value)),
+      });
       this.editor.replaceBoardInPlace(board);
       this.lastBoard = { ...last, board, document: this.editor.getState().document };
       this.report();
@@ -327,7 +331,7 @@ export class BoardTool implements Tool {
   }
 
   private beginThickness(phase: FacePhase, pointer: ToolPointer | null): void {
-    const { units } = this.editor.getState();
+    const { stock } = this.editor.getState();
     const axis = phase.lockedAxis ?? phase.autoAxis;
     const plane = phase.start[axis];
 
@@ -341,7 +345,7 @@ export class BoardTool implements Tool {
       kind: 'thickness',
       face: boxFromCorners(phase.start, phase.corner),
       axis,
-      thickness: direction * defaultThickness(units),
+      thickness: direction * stock.thickness,
       anchor: phase.corner,
       enteredAt: pointer ? { ...pointer.view.cursor } : { x: Infinity, y: Infinity },
       moved: false,
@@ -357,7 +361,7 @@ export class BoardTool implements Tool {
       phase.moved = true;
     }
 
-    const { document, units } = this.editor.getState();
+    const { document, stock } = this.editor.getState();
     const { axis, anchor } = phase;
     const snap = findSnap(document.boards, pointer.view, { kind: 'line', axis, through: anchor }, document.guides);
     if (!snap) return;
@@ -367,7 +371,7 @@ export class BoardTool implements Tool {
     if (snap.kind === 'free' || (onLine(snap) && snap.edgeAxis === axis)) {
       thickness = quantize(thickness, this.stepNear(pointer, snap.point, axis));
       // The usual sheet thickness is easy to land on: the cursor sticks to it when close.
-      const usual = sign(thickness || phase.thickness) * defaultThickness(units);
+      const usual = sign(thickness || phase.thickness) * stock.thickness;
       const usualPoint = pointer.view.project(toMillimeters(withAxis(anchor, axis, anchor[axis] + usual)));
       const here = pointer.view.project(toMillimeters(snap.point));
       if (usualPoint && here && Math.hypot(usualPoint.x - here.x, usualPoint.y - here.y) < DETENT_PIXELS) {
@@ -378,17 +382,20 @@ export class BoardTool implements Tool {
   }
 
   private finishBoard(phase: ThicknessPhase): void {
-    const { document } = this.editor.getState();
-    const board: Board = {
+    const { document, stock } = this.editor.getState();
+    // Its thickness is whichever way it ends up thinnest, which need not be the way it was pulled.
+    const board: Board = tidyBoard({
       id: createId(),
       name: nextBoardName(document),
       thicknessAxis: phase.axis,
+      materialId: stock.materialId,
       ...this.solid(phase.face, phase.axis, phase.thickness),
-    };
+    });
     this.editor.addBoards([board], 'Draw board');
     this.lastBoard = {
       board,
       face: phase.face,
+      axis: phase.axis,
       direction: sign(phase.thickness),
       document: this.editor.getState().document,
     };
@@ -446,8 +453,8 @@ export class BoardTool implements Tool {
     } else if (phase.kind === 'thickness') {
       editor.setMeasurement('Thickness', this.format(phase.thickness));
     } else if (this.correctable()) {
-      const { board } = this.correctable()!;
-      editor.setMeasurement('Thickness', this.format(board.size[board.thicknessAxis]));
+      const { board, axis } = this.correctable()!;
+      editor.setMeasurement('Thickness', this.format(board.size[axis]));
     } else {
       editor.setMeasurement('Size', '');
     }

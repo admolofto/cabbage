@@ -113,6 +113,59 @@ Tested in `edit-tools.test.ts` unless a note says otherwise.
   The first build handed the browser the whole kilometer of dashed line, and
   placing a guide lagged badly (reported 2026-11-24). Tested in `clip.test.ts`.
 
+## Materials, board details, and the cut list (milestone 4)
+
+- **A material is a kind of stock, not a thickness.** Plywood is one material
+  whether it is 1/4" or 3/4". The thickness belongs to the board, and the cut
+  list groups by material and thickness together. That keeps the list of
+  materials short and lets a board be pulled thicker without changing what it
+  is made of.
+- **New boards take the stock shown at the top left.** The material and the
+  starting thickness are picked there, and remembered between visits.
+  Switching units swaps the thickness for its usual partner, so 3/4" becomes
+  18 mm.
+- **A board is thick along its thinnest side.** A side drawn as a 3/4" by 12"
+  strip on the floor and pulled up 36" is a 36" by 12" part in 3/4" stock, not
+  a 12" by 3/4" part in 36" stock. The first build got this wrong. Tested in
+  `cut-list.test.ts` and `board-tool.test.ts`.
+- **Length runs with the grain.** For a material with grain, the cut list's
+  length is the side the grain follows, even when that is the shorter side.
+  Grain starts out along the longer side. Without grain, length is the longer
+  side.
+- **Grain and banding are named by where they are in the room.** "Left to
+  right" and "Front" need no knowledge of which side of a part is its length.
+  The cut list translates them into length and width edges. They turn with the
+  board when it is rotated.
+- **Banded edges show in the view.** A banded edge is painted darker, so a
+  missed one can be seen without opening the list.
+- **Identical parts share a line.** Parts merge when material, thickness,
+  length, width, and banding all match. Names do not have to match: a line
+  lists every name on it. Typing a name on a line renames every board on it.
+- **Clicking a line selects its boards.** It is the quickest way to find where
+  a part is, and to change all of them at once.
+- **Sheet counts are a floor, not a plan.** "At least 2 sheets" is the area
+  divided by a 4 x 8 ft sheet. A real layout needs more, and comes with the
+  sheet layout phase. A part bigger than a sheet is flagged.
+- **The print view is only the list.** With the cut list open, printing leaves
+  out the 3D view and the controls.
+
+## Files
+
+- **The project takes the name of its file.** Saving as `Hall bookcase.cabbage`
+  names the project Hall bookcase, and a file renamed on disk opens under its
+  new name.
+- **Save writes back to the same file where the browser allows it.** The first
+  save asks where. Browsers without direct file access download the file
+  instead.
+- **Nothing unsaved is thrown away without asking.** New and Open ask first
+  when the model has changes that are not in a file. An empty model has nothing
+  to lose and is never asked about.
+- **The browser still keeps a copy.** The model is kept in the browser's own
+  storage as before, so closing the tab loses nothing. The dot beside the name
+  means the file on disk is behind.
+- **Older saves open.** A model from before materials opens with every board
+  in plywood.
+
 ## Selecting
 
 - **The left button belongs to the active tool.** With Select or Board active, a
@@ -153,3 +206,12 @@ Tested in `edit-tools.test.ts` unless a note says otherwise.
 - Are quarter turns enough for Rotate until tilted boards arrive?
 - Should guides stay until deleted, as they do now, or is a "clear all guides"
   command needed?
+- Are five built-in materials the right starting list, and should a custom
+  material carry more than a name and a grain setting, such as a sheet size or
+  a price?
+- Is naming banded edges by Front, Back, Left, and Right clear, or would
+  picking the edge in the 3D view be better?
+- Does the cut list need more columns, such as a part number or notes?
+- Should a part's length always follow the grain, as it does now, even when
+  that makes length the shorter number?
+- Is the cut list better docked under the view, as it is now, or beside it?

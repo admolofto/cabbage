@@ -227,7 +227,7 @@ export class ViewportEngine {
 
   private syncModel(overrides: ReadonlyMap<string, Box> = NO_OVERRIDES): void {
     const { document, selection, hovered } = this.editor.getState();
-    this.scene.setBoards(document.boards, selection, hovered, overrides);
+    this.scene.setBoards(document.boards, document.materials, selection, hovered, overrides);
   }
 
   private framedDistance(): number {
