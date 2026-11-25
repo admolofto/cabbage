@@ -33,6 +33,43 @@ export function LogoMark() {
   );
 }
 
+/** An arrow pointer. */
+export function SelectIcon() {
+  return (
+    <Icon>
+      <path d="M6 3.5l12.5 8-5.6 1.3 3.2 6-2.3 1.2-3.2-6L6.6 18z" />
+    </Icon>
+  );
+}
+
+/** A board lying flat, seen from above and to one side. */
+export function BoardIcon() {
+  return (
+    <Icon>
+      <path d="M3 10.5L13.5 6 21 9.5 10.5 14z" />
+      <path d="M3 10.5v3.2l7.5 3.6V14M21 9.5v3.2l-10.5 4.6" />
+    </Icon>
+  );
+}
+
+export function UndoIcon() {
+  return (
+    <Icon>
+      <path d="M8 6L4 10l4 4" />
+      <path d="M4 10h10a5 5 0 0 1 0 10h-3" />
+    </Icon>
+  );
+}
+
+export function RedoIcon() {
+  return (
+    <Icon>
+      <path d="M16 6l4 4-4 4" />
+      <path d="M20 10H10a5 5 0 0 0 0 10h3" />
+    </Icon>
+  );
+}
+
 /** A ball with a ring swinging around it. */
 export function OrbitIcon() {
   return (

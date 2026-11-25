@@ -8,6 +8,8 @@
   --accent-wash: #e2eed8;
   --axis-x: #c4513a;
   --axis-y: #4f8f3a;
+  --highlight: #1c64d1;
+  --danger: #b3261e;
   --shadow: 0 1px 2px rgb(31 43 36 / 8%), 0 8px 24px rgb(31 43 36 / 10%);
   --radius: 12px;
 
@@ -38,7 +40,8 @@ body {
 }
 
 button,
-select {
+select,
+input {
   font: inherit;
   color: inherit;
 }
@@ -161,6 +164,42 @@ button {
   color: var(--accent);
 }
 
+.icon-button:disabled {
+  background: transparent;
+  color: var(--rule);
+  cursor: default;
+}
+
+.history-controls {
+  display: flex;
+  gap: 2px;
+}
+
+.text-button {
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 20px;
+  padding: 0 5px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  text-align: center;
+  white-space: nowrap;
+}
+
 /* Stage and viewport */
 
 .stage {
@@ -173,6 +212,14 @@ button {
   position: absolute;
   inset: 0;
   background: linear-gradient(#e6ebe3 0%, #f1efe6 55%, #f6f3ea 100%);
+  cursor: default;
+}
+
+.viewport[data-tool='board'] {
+  cursor: crosshair;
+}
+
+.viewport[data-tool='orbit'] {
   cursor: grab;
 }
 
@@ -195,6 +242,116 @@ button {
   -webkit-touch-callout: none;
 }
 
+/* Markings drawn over the 3D view */
+
+.viewport-overlay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.viewport-overlay > [hidden] {
+  display: none;
+}
+
+.overlay-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.overlay-guide {
+  stroke: var(--ink);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+  opacity: 0.7;
+}
+
+.snap-marker,
+.snap-source,
+.dimension-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.snap-marker {
+  --snap: #2e9e44;
+  display: flex;
+  align-items: center;
+  width: 0;
+  height: 0;
+}
+
+.snap-marker[data-kind='midpoint'] {
+  --snap: #1493c4;
+}
+
+.snap-marker[data-kind='edge'] {
+  --snap: #d2452f;
+}
+
+.snap-marker[data-kind='origin'] {
+  --snap: #c98a00;
+}
+
+.snap-marker i {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  margin-left: -5.5px;
+  background: var(--snap);
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--snap);
+}
+
+.snap-marker[data-kind='edge'] i {
+  border-radius: 2px;
+}
+
+/* A point lined up with something elsewhere is drawn hollow. */
+.snap-marker[data-aligned] i {
+  background: #fff;
+  border-color: var(--snap);
+  box-shadow: none;
+}
+
+.snap-marker span {
+  margin: 34px 0 0 8px;
+  padding: 1px 7px;
+  background: var(--ink);
+  border-radius: 6px;
+  color: #fff;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.snap-source {
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  background: var(--ink);
+  border-radius: 50%;
+}
+
+.dimension-label {
+  margin: -11px 0 0;
+  padding: 1px 7px;
+  background: var(--surface);
+  border: 1px solid var(--highlight);
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+  translate: -50% 0;
+}
+
 /* Tool rail */
 
 .toolrail {
@@ -213,6 +370,7 @@ button {
 }
 
 .tool-button {
+  position: relative;
   display: grid;
   place-items: center;
   width: 44px;
@@ -234,10 +392,18 @@ button {
   color: var(--accent);
 }
 
-.toolrail-divider {
+.tool-button[data-divided] {
+  margin-top: 9px;
+}
+
+.tool-button[data-divided]::before {
+  position: absolute;
+  top: -5px;
+  right: 6px;
+  left: 6px;
   height: 1px;
-  margin: 2px 6px;
   background: var(--rule);
+  content: '';
 }
 
 /* Standard views */
@@ -269,13 +435,45 @@ button {
   color: var(--accent);
 }
 
+/* Empty model */
+
+.empty-card {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 10px 16px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  transform: translateX(-50%);
+}
+
+.empty-card p {
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+.empty-card strong {
+  color: var(--ink);
+}
+
+.empty-card .text-button {
+  flex: none;
+}
+
 /* Help card */
 
 .help-card {
   position: absolute;
   top: 64px;
   right: 12px;
-  width: min(320px, calc(100% - 24px));
+  width: min(340px, calc(100% - 24px));
   max-height: calc(100% - 76px);
   padding: 14px 16px 16px;
   overflow: auto;
@@ -323,17 +521,16 @@ button {
   color: var(--ink-soft);
 }
 
-.help-card kbd {
-  display: inline-block;
-  min-width: 20px;
-  padding: 0 5px;
-  background: var(--paper);
-  border: 1px solid var(--rule);
-  border-bottom-width: 2px;
-  border-radius: 5px;
-  font: inherit;
-  font-size: 12px;
-  text-align: center;
+.help-card h3 kbd {
+  margin-left: 4px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.help-card ol {
+  margin: 0 0 6px;
+  padding-left: 18px;
+  color: var(--ink-soft);
 }
 
 .help-note {
@@ -379,6 +576,42 @@ button {
   color: var(--ink-soft);
 }
 
+.status-readouts {
+  align-items: center;
+}
+
+.measure {
+  display: flex;
+  align-items: center;
+}
+
+.measure-input {
+  height: 26px;
+  padding: 0 8px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.measure-input:read-only {
+  background: transparent;
+  outline: none;
+}
+
+.measure-input[data-typing] {
+  background: #fff;
+  border-color: var(--highlight);
+  box-shadow: 0 0 0 2px rgb(28 100 209 / 18%);
+}
+
+.measure-input[data-error] {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px rgb(179 38 30 / 18%);
+  color: var(--danger);
+}
+
 .axis-x,
 .axis-y {
   margin-left: 6px;
@@ -396,11 +629,25 @@ button {
 
 /* Narrow screens: tablets held upright and phones */
 
+@media (max-width: 1000px) {
+  .readout-grid {
+    display: none;
+  }
+}
+
 @media (max-width: 720px) {
   .chip,
   .precision-label,
-  .status-hint {
+  .status-hint,
+  .readout-floor {
     display: none;
+  }
+
+  .empty-card {
+    flex-direction: column;
+    gap: 6px;
+    width: calc(100% - 24px);
+    text-align: center;
   }
 
   .statusbar {
@@ -413,8 +660,12 @@ button {
 }
 
 @media (max-width: 560px) {
-  .brand-name {
+  .brand {
     display: none;
+  }
+
+  .topbar {
+    justify-content: flex-end;
   }
 
   .topbar {
