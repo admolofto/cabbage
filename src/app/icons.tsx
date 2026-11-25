@@ -52,6 +52,51 @@ export function BoardIcon() {
   );
 }
 
+/** A block with an arrow drawing one face outward. */
+export function PullIcon() {
+  return (
+    <Icon>
+      <path d="M3 13.5L10 11l7 2.5-7 2.5z" />
+      <path d="M3 13.5v4L10 20v-4M17 13.5v4L10 20" />
+      <path d="M10 10V3M7.5 5.5L10 3l2.5 2.5" />
+    </Icon>
+  );
+}
+
+/** A square with an arrow carrying it to a new place. */
+export function MoveIcon() {
+  return (
+    <Icon>
+      <rect x="3" y="12" width="8" height="8" rx="1" strokeDasharray="2.2 2.2" />
+      <rect x="13" y="4" width="8" height="8" rx="1" />
+      <path d="M8 15l5-4.5M13 13.2v-2.7h-2.7" />
+    </Icon>
+  );
+}
+
+/** An arrow sweeping a quarter of the way around a point. */
+export function RotateIcon() {
+  return (
+    <Icon>
+      <path d="M5 19V8M5 19h11" />
+      <path d="M9 6.2a11 11 0 0 1 8.8 8.8" />
+      <path d="M15.2 13.3l2.7 1.9 1.7-2.8" />
+      <circle cx="5" cy="19" r="1.1" fill="currentColor" stroke="none" />
+    </Icon>
+  );
+}
+
+/** A tape measure with its blade pulled out. */
+export function TapeIcon() {
+  return (
+    <Icon>
+      <rect x="3" y="6" width="11" height="11" rx="2.5" />
+      <circle cx="8.5" cy="11.5" r="2" />
+      <path d="M14 17h7v-3M17.5 17v-1.5" />
+    </Icon>
+  );
+}
+
 export function UndoIcon() {
   return (
     <Icon>

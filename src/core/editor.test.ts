@@ -98,7 +98,8 @@ describe('Editor', () => {
 
 describe('documents', () => {
   it('numbers new boards past the highest number in use', () => {
-    const document = { version: 1 as const, boards: [board('a', 'Board 2'), board('b', 'Left side'), board('c', 'Board 7')] };
+    const boards = [board('a', 'Board 2'), board('b', 'Left side'), board('c', 'Board 7')];
+    const document = { version: 1 as const, boards, guides: [] };
     expect(nextBoardName(document)).toBe('Board 8');
   });
 
@@ -108,7 +109,7 @@ describe('documents', () => {
     expect(parseDocument({ version: 1, boards: [{ ...board('a'), size: [1, 0, 1] }] })).toBeNull();
     expect(parseDocument({ version: 1, boards: [{ ...board('a'), min: [0.5, 0, 0] }] })).toBeNull();
     expect(parseDocument({ version: 1, boards: [board('a'), board('a')] })).toBeNull();
-    expect(parseDocument({ version: 1, boards: [board('a')] })).toEqual({ version: 1, boards: [board('a')] });
+    expect(parseDocument({ version: 1, boards: [board('a')] })).toEqual({ version: 1, boards: [board('a')], guides: [] });
   });
 });
 

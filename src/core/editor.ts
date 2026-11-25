@@ -3,7 +3,7 @@ import {
   EMPTY_DOCUMENT,
   addBoards,
   parseDocument,
-  removeBoards,
+  removeItems,
   replaceBoard,
   type CabbageDocument,
 } from './document';
@@ -31,7 +31,7 @@ import {
   type UnitSettings,
 } from './units';
 
-export type ToolId = 'select' | 'board' | 'orbit' | 'pan';
+export type ToolId = 'select' | 'board' | 'pull' | 'move' | 'rotate' | 'tape' | 'orbit' | 'pan';
 
 /** The measurement box: what the active tool is measuring, and anything being typed into it. */
 export interface MeasurementState {
@@ -172,11 +172,15 @@ export class Editor {
     this.amendDocument(replaceBoard(this.state.document, board));
   }
 
+  /** Removes the selected boards and guides as one undo step. */
   deleteSelection(): boolean {
     const { selection, document } = this.state;
     if (selection.size === 0) return false;
-    const label = selection.size === 1 ? 'Delete board' : `Delete ${selection.size} boards`;
-    this.commitDocument(removeBoards(document, selection), label);
+    const boards = document.boards.filter((board) => selection.has(board.id)).length;
+    const guides = document.guides.filter((guide) => selection.has(guide.id)).length;
+    const count = (amount: number, one: string) => (amount === 1 ? one : `${amount} ${one}s`);
+    const parts = [boards > 0 ? count(boards, 'board') : '', guides > 0 ? count(guides, 'guide') : ''];
+    this.commitDocument(removeItems(document, selection), `Delete ${parts.filter(Boolean).join(' and ')}`);
     return true;
   }
 
@@ -214,8 +218,8 @@ export class Editor {
 
   setTool(tool: ToolId): void {
     if (tool === this.state.tool) return;
-    // Drawing starts with nothing selected, so Delete can never remove something out of mind.
-    const selection = tool === 'board' ? EMPTY_SELECTION : this.state.selection;
+    // Tools that ignore the selection start with nothing selected, so Delete can never remove something out of mind.
+    const selection = tool === 'board' || tool === 'pull' || tool === 'tape' ? EMPTY_SELECTION : this.state.selection;
     this.update({ tool, selection, hovered: null, measurement: NO_MEASUREMENT, hint: '' });
   }
 
@@ -255,7 +259,7 @@ export class Editor {
 
   private afterDocumentChange(): void {
     const document = this.history.present;
-    const ids = new Set(document.boards.map((board) => board.id));
+    const ids = new Set([...document.boards, ...document.guides].map((item) => item.id));
     const selection = new Set([...this.state.selection].filter((id) => ids.has(id)));
     const hovered = this.state.hovered && ids.has(this.state.hovered) ? this.state.hovered : null;
     this.write(DOCUMENT_KEY, JSON.stringify(document));

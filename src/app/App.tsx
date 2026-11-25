@@ -24,16 +24,20 @@ import {
   FitIcon,
   HelpIcon,
   LogoMark,
+  MoveIcon,
   OrbitIcon,
   PanIcon,
+  PullIcon,
   RedoIcon,
+  RotateIcon,
   SelectIcon,
+  TapeIcon,
   UndoIcon,
 } from './icons';
 
 const HELP_SEEN_KEY = 'cabbage.help-seen';
 /** Changes when the controls change enough that the card is worth showing once more. */
-const HELP_VERSION = 'draw-boards';
+const HELP_VERSION = 'edit-boards';
 
 const VIEWS: readonly { view: ViewName; label: string }[] = [
   { view: 'front', label: 'Front' },
@@ -45,6 +49,10 @@ const VIEWS: readonly { view: ViewName; label: string }[] = [
 const TOOLS: readonly { id: ToolId; label: string; key: string; Icon: () => React.JSX.Element }[] = [
   { id: 'select', label: 'Select', key: 'Space', Icon: SelectIcon },
   { id: 'board', label: 'Board', key: 'B', Icon: BoardIcon },
+  { id: 'pull', label: 'Pull', key: 'P', Icon: PullIcon },
+  { id: 'move', label: 'Move', key: 'M', Icon: MoveIcon },
+  { id: 'rotate', label: 'Rotate', key: 'R', Icon: RotateIcon },
+  { id: 'tape', label: 'Tape', key: 'T', Icon: TapeIcon },
   { id: 'orbit', label: 'Orbit', key: 'O', Icon: OrbitIcon },
   { id: 'pan', label: 'Pan', key: 'H', Icon: PanIcon },
 ];
@@ -53,6 +61,9 @@ const NAVIGATION_HINTS: Partial<Record<ToolId, string>> = {
   orbit: 'Drag to orbit. Scroll to zoom toward the cursor. Hold Shift and drag to pan.',
   pan: 'Drag to pan. Scroll to zoom toward the cursor.',
 };
+
+/** Tools that measure nothing themselves, so the measurement box describes the selection instead. */
+const SELECTION_TOOLS: ReadonlySet<ToolId> = new Set(['select', 'orbit', 'pan']);
 
 function helpSeenBefore(): boolean {
   try {
@@ -72,7 +83,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 
 /** What the measurement box shows: the active tool's own reading, or the size of the selection. */
 function measurementFor(state: EditorState): { label: string; value: string } {
-  if (state.tool === 'board') return state.measurement;
+  if (!SELECTION_TOOLS.has(state.tool)) return state.measurement;
   const { selection, document, units } = state;
   if (selection.size === 1) {
     const board = document.boards.find((candidate) => selection.has(candidate.id));
@@ -82,7 +93,8 @@ function measurementFor(state: EditorState): { label: string; value: string } {
       return { label: board.name, value: sizes.join(' x ') };
     }
   }
-  if (selection.size > 1) return { label: 'Selected', value: `${selection.size} boards` };
+  if (selection.size > 1) return { label: 'Selected', value: `${selection.size} items` };
+  if (selection.size === 1) return { label: 'Selected', value: 'Guide' };
   return { label: 'Measurement', value: '' };
 }
 
@@ -116,6 +128,8 @@ export function App({ editor, tools }: AppProps) {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (isTypingTarget(event.target)) return;
+      // Holding a modifier key down repeats it. Only the first press counts.
+      if (event.repeat && (event.key === 'Control' || event.key === 'Meta')) return;
       // A focused button keeps Space and Enter for itself.
       if (event.target instanceof HTMLButtonElement && (event.key === ' ' || event.key === 'Enter')) return;
 
@@ -160,7 +174,7 @@ export function App({ editor, tools }: AppProps) {
         <div className="brand">
           <LogoMark />
           <span className="brand-name">Cabbage</span>
-          <span className="chip">Milestone 2 preview</span>
+          <span className="chip">Milestone 3 preview</span>
         </div>
         <div className="topbar-controls">
           <div className="history-controls">
@@ -249,7 +263,7 @@ export function App({ editor, tools }: AppProps) {
           ))}
         </div>
 
-        {state.document.boards.length === 0 && !helpOpen && tool !== 'board' && (
+        {state.document.boards.length === 0 && !helpOpen && SELECTION_TOOLS.has(tool) && (
           <div className="empty-card">
             <p>
               <strong>Nothing here yet.</strong> Press <kbd>B</kbd> and click two corners on the floor to draw a
@@ -300,7 +314,7 @@ interface MeasurementBoxProps {
 function MeasurementBox({ state, editor, tools }: MeasurementBoxProps) {
   const { label, value } = measurementFor(state);
   const { typed, error } = state.measurement;
-  const drawing = state.tool === 'board';
+  const drawing = !SELECTION_TOOLS.has(state.tool);
   return (
     <label className="measure">
       <span className="readout-label">{label}</span>
@@ -394,45 +408,69 @@ function HelpCard({ onClose, onAddSample }: { onClose: () => void; onAddSample: 
         </button>
       </header>
 
-      <h3>
-        Draw a board <kbd>B</kbd>
-      </h3>
-      <ol>
-        <li>Click a corner, then click the opposite corner.</li>
-        <li>Move to set the thickness and click, or press Enter to keep the one shown.</li>
-      </ol>
+      <h3>Every tool</h3>
       <dl>
         <dt>Type a size</dt>
         <dd>
-          Type <kbd>24, 34 1/2</kbd> and press Enter. No need to click a box first. Right after a board is
-          drawn, typing <kbd>1/2</kbd> changes its thickness.
+          Just type and press Enter. No need to click a box first. Sums work: <kbd>36 - 3/4 * 2</kbd>. Typing
+          again right after a step corrects it.
         </dd>
-        <dt>Stand it up</dt>
+        <dt>Lock an axis</dt>
         <dd>
-          <kbd>→</kbd> <kbd>←</kbd> <kbd>↑</kbd> pick which way the board faces. <kbd>↓</kbd> goes back to
-          automatic.
+          <kbd>→</kbd> X, <kbd>←</kbd> Y, <kbd>↑</kbd> Z, <kbd>↓</kbd> free. Or hold <kbd>Shift</kbd> to keep
+          the axis you are on.
         </dd>
         <dt>Back out</dt>
         <dd>
-          <kbd>Esc</kbd> undoes one step of the drawing.
+          <kbd>Esc</kbd> cancels the step. <kbd>Ctrl</kbd> <kbd>Z</kbd> undoes, with <kbd>Shift</kbd> to redo.
         </dd>
       </dl>
 
       <h3>
+        Board <kbd>B</kbd>
+      </h3>
+      <p>
+        Click a corner, click the opposite corner, then set the thickness or press Enter. Type{' '}
+        <kbd>24, 34 1/2</kbd> for both sizes. Arrow keys stand the board up.
+      </p>
+
+      <h3>
+        Pull <kbd>P</kbd>
+      </h3>
+      <p>
+        Click a face, move, click. Type a distance, or <kbd>=30</kbd> to set the full size.
+      </p>
+
+      <h3>
+        Move <kbd>M</kbd>
+      </h3>
+      <p>
+        Click a point on a board, then click where that point goes. <kbd>Ctrl</kbd> makes a copy. After a
+        copy, type <kbd>3x</kbd> for three in a row or <kbd>/3</kbd> to space three evenly.
+      </p>
+
+      <h3>
+        Rotate <kbd>R</kbd>
+      </h3>
+      <p>
+        Click the point to turn about, then type <kbd>90</kbd>. Or click a point to grab and swing it
+        around. Turns are in quarter turns for now.
+      </p>
+
+      <h3>
+        Tape <kbd>T</kbd>
+      </h3>
+      <p>
+        Click two points to measure. Start on an edge to pull a guide off it, then click or type its offset.
+      </p>
+
+      <h3>
         Select <kbd>Space</kbd>
       </h3>
-      <dl>
-        <dt>Pick</dt>
-        <dd>Click a board. Shift and click adds or removes one.</dd>
-        <dt>Delete</dt>
-        <dd>
-          <kbd>Delete</kbd> removes the selected boards.
-        </dd>
-        <dt>Undo</dt>
-        <dd>
-          <kbd>Ctrl</kbd> <kbd>Z</kbd>, and <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>Z</kbd> to redo.
-        </dd>
-      </dl>
+      <p>
+        Click a board or guide. Shift and click adds or removes. Drag a box to the right for what is inside
+        it, to the left for anything it touches. <kbd>Delete</kbd> removes the selection.
+      </p>
 
       <h3>Getting around</h3>
       <dl>

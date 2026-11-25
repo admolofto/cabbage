@@ -17,8 +17,9 @@ Early development. Nothing here is usable for real projects yet.
 The first usable version is a board modeler with a correct cut list:
 
 1. **Viewport.** 3D view with a floor grid, orbit, pan, zoom, and units. Done.
-2. **Draw boards.** Board tool, typed measurements, snapping, undo. In review.
-3. **Edit boards.** Pull, move, rotate, full inference, guides, measuring.
+2. **Draw boards.** Board tool, typed measurements, snapping, undo. Done.
+3. **Edit boards.** Pull, move and copy, rotate, guides, measuring, box select.
+   In review.
 4. **Cut list.** Materials, grain, edge banding, cut list export, save and open.
 
 Later phases add parametric cabinets (frameless and face frame), sheet layout
@@ -42,12 +43,14 @@ To try a build without a server, run `npm run build:standalone`. It writes
 The code is layered so the parts that matter most can be tested without a
 browser:
 
-- `src/core` holds the model: exact units, boards, the document, undo history,
-  typed measurement parsing, and the editor that ties them together.
+- `src/core` holds the model: exact units, boards, guides, the document, undo
+  history, typed measurement parsing, the math for moving, pulling, and turning
+  boards, and the editor that ties them together.
 - `src/inference` decides what the cursor snaps to: corners, midpoints, edges,
-  faces, and the floor.
-- `src/tools` holds the drawing tools. Each one is a small state machine that is
-  fed pointer and key events and never touches the screen.
+  guides, faces, and the floor, and notices when the cursor follows an axis.
+- `src/tools` holds the tools: Select, Board, Pull, Move, Rotate, and Tape. Each
+  one is a small state machine that is fed pointer and key events and never
+  touches the screen.
 - `src/viewport` holds the 3D view. Camera math lives in `camera-math.ts`, apart
   from the code that listens to the mouse and touch screen.
 - `src/app` holds the panels and controls around the view.

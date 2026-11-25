@@ -151,7 +151,8 @@ function fitToBox(object: Mesh | LineSegments, box: Box): void {
 }
 
 interface BoardView {
-  board: Board;
+  /** The box the meshes were last fitted to: the board itself, or where a tool is showing it for now. */
+  shown: Box;
   mesh: Mesh;
   outline: LineSegments;
 }
@@ -179,8 +180,9 @@ export class ViewportScene {
 
   private readonly previewOutline: LineLoop;
   private readonly previewFill: Mesh;
-  private readonly previewBox: Mesh;
-  private readonly previewBoxEdges: LineSegments;
+  private readonly ghostFaces: MeshLambertMaterial;
+  private readonly ghostLines: LineBasicMaterial;
+  private readonly ghosts: { mesh: Mesh; outline: LineSegments }[] = [];
 
   constructor() {
     const { scene } = this;
@@ -228,56 +230,62 @@ export class ViewportScene {
       }),
     );
 
-    this.previewBox = new Mesh(
-      this.cube,
-      new MeshLambertMaterial({
-        color: COLORS.board,
-        transparent: true,
-        opacity: 0.7,
-        depthWrite: false,
-        polygonOffset: true,
-        polygonOffsetFactor: 1,
-        polygonOffsetUnits: 1,
-      }),
-    );
-    this.previewBoxEdges = new LineSegments(this.cubeEdges, overlayLine);
+    this.ghostFaces = new MeshLambertMaterial({
+      color: COLORS.board,
+      transparent: true,
+      opacity: 0.7,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
+    });
+    this.ghostLines = overlayLine;
 
-    for (const object of [this.previewFill, this.previewOutline, this.previewBox, this.previewBoxEdges]) {
+    for (const object of [this.previewFill, this.previewOutline]) {
       object.visible = false;
       object.frustumCulled = false;
       object.renderOrder = 10;
       scene.add(object);
     }
-    this.previewBox.renderOrder = 9;
   }
 
-  /** Brings the drawn boards in line with the model, and marks the hovered and selected ones. */
-  setBoards(boards: readonly Board[], selection: ReadonlySet<string>, hovered: string | null): void {
+  /**
+   * Brings the drawn boards in line with the model, and marks the hovered and
+   * selected ones. A tool in the middle of an edit can show boards somewhere
+   * other than where the model has them, through `overrides`.
+   */
+  setBoards(
+    boards: readonly Board[],
+    selection: ReadonlySet<string>,
+    hovered: string | null,
+    overrides: ReadonlyMap<string, Box>,
+  ): void {
     if (boards !== this.boards) {
       this.boards = boards;
-      const ids = new Set<string>();
-      for (const board of boards) {
-        ids.add(board.id);
-        let view = this.views.get(board.id);
-        if (!view) {
-          const mesh = new Mesh(this.cube, this.faceMaterials.plain);
-          const outline = new LineSegments(this.cubeEdges, this.edgeMaterials.plain);
-          view = { board, mesh, outline };
-          this.views.set(board.id, view);
-          this.model.add(mesh, outline);
-        } else if (view.board === board) {
-          continue;
-        }
-        view.board = board;
-        fitToBox(view.mesh, board);
-        fitToBox(view.outline, board);
-      }
+      const ids = new Set(boards.map((board) => board.id));
       for (const [id, view] of this.views) {
         if (ids.has(id)) continue;
         this.model.remove(view.mesh, view.outline);
         this.views.delete(id);
       }
       this.updateBounds();
+    }
+
+    for (const board of boards) {
+      const shown = overrides.get(board.id) ?? board;
+      let view = this.views.get(board.id);
+      if (!view) {
+        const mesh = new Mesh(this.cube, this.faceMaterials.plain);
+        const outline = new LineSegments(this.cubeEdges, this.edgeMaterials.plain);
+        view = { shown, mesh, outline };
+        this.views.set(board.id, view);
+        this.model.add(mesh, outline);
+      } else if (view.shown === shown) {
+        continue;
+      }
+      view.shown = shown;
+      fitToBox(view.mesh, shown);
+      fitToBox(view.outline, shown);
     }
 
     for (const [id, view] of this.views) {
@@ -291,7 +299,7 @@ export class ViewportScene {
 
   /** Draws what the active tool is in the middle of making. */
   setPreview(preview: ToolPreview): void {
-    const { outline, box } = preview;
+    const { outline, boxes } = preview;
     this.previewOutline.visible = this.previewFill.visible = outline !== null && outline.length === 4;
     if (outline && outline.length === 4) {
       for (const object of [this.previewOutline, this.previewFill]) {
@@ -300,11 +308,25 @@ export class ViewportScene {
         position.needsUpdate = true;
       }
     }
-    this.previewBox.visible = this.previewBoxEdges.visible = box !== null;
-    if (box) {
-      fitToBox(this.previewBox, box);
-      fitToBox(this.previewBoxEdges, box);
+
+    // Boards about to be created are see-through, and there are as many as the tool asks for.
+    while (this.ghosts.length < boxes.length) {
+      const mesh = new Mesh(this.cube, this.ghostFaces);
+      const edges = new LineSegments(this.cubeEdges, this.ghostLines);
+      mesh.renderOrder = 9;
+      edges.renderOrder = 10;
+      mesh.frustumCulled = edges.frustumCulled = false;
+      this.scene.add(mesh, edges);
+      this.ghosts.push({ mesh, outline: edges });
     }
+    this.ghosts.forEach((ghost, index) => {
+      const box = boxes[index];
+      ghost.mesh.visible = ghost.outline.visible = box !== undefined;
+      if (box) {
+        fitToBox(ghost.mesh, box);
+        fitToBox(ghost.outline, box);
+      }
+    });
   }
 
   /**

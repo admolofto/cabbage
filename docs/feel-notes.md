@@ -65,13 +65,67 @@ an earlier fix. Where a note can be checked by a test, the test is named.
 - **Touch aims, then places.** A finger moves the preview while it is down and
   places the point when it lifts. Two fingers still pan and zoom.
 
+## Editing boards (milestone 3)
+
+Tested in `edit-tools.test.ts` unless a note says otherwise.
+
+- **Every tool reads the same way.** Click to start, move, click to finish, or
+  type a number and press Enter. Typing again right after a step corrects that
+  step without adding an undo step. Arrow keys lock an axis: Right for X, Left
+  for Y, Up for Z, Down for free. Shift holds the axis the cursor is already on.
+- **Typed sums work.** `36 - 3/4 * 2` gives the space between two 3/4" sides.
+  Plus and minus need a space on each side, so `-3` and `1-1/2` keep their
+  usual meaning. Tested in `transform.test.ts`.
+- **Text that was turned down is replaced, not added to.** After the box turns
+  red, the next number typed starts over. Backspace still edits what is there.
+- **Pull works on the face under the cursor.** No selecting first. A typed
+  number is a distance the way the face is heading, and `=30` sets the full
+  size. A face cannot be pushed through the far side of its own board.
+- **Pull does not snap to what the board hides.** The board being pulled never
+  snaps to itself, but it still covers whatever is behind it.
+- **Move stays level unless told otherwise.** A free move slides in the
+  horizontal plane through the grabbed point. It follows an axis when the
+  cursor heads along one, and goes exactly to a corner, midpoint, edge, or
+  guide it reaches. Faces and the floor do not pull it off level. Up locks Z to
+  lift a board.
+- **Move takes what you clicked.** With nothing selected, Move picks up the
+  board under the cursor. With a selection, it moves all of it by the point you
+  grab.
+- **Ctrl turns a move into a copy.** Press it any time before the second click.
+  After a copy, `3x` makes three in a row and `/3` spaces three evenly up to
+  where the copy landed. The copies become the selection.
+- **A locked move takes a distance even when a snap holds it at zero.** The
+  typed distance goes the way the cursor is heading along the locked axis.
+- **Rotate is quarter turns for now.** Click the point to turn about, then swing
+  a grabbed point around or type `90`, `180`, or `-90`. It turns about Z unless
+  an arrow key picks another axis or the click lands on a face. Boards stay
+  square to the axes until the model can hold tilted ones. Tested in
+  `transform.test.ts`.
+- **Tape measures, and pulls guides.** Two clicks on points give a length.
+  Starting on an edge or on a guide pulls a guide off it instead, sideways,
+  the way the cursor heads. A typed number sets the offset.
+- **Guides are lines with no ends.** They run along one axis, snap like edges,
+  mark where they cross edges and each other, and are saved with the model.
+  Select and delete them like boards. Tested in `inference.test.ts`.
+- **Guides are never hidden.** They are drawn over the model so one behind a
+  cabinet can still be found.
+- **Guides must not slow the view.** A guide is drawn only where it is in view.
+  The first build handed the browser the whole kilometer of dashed line, and
+  placing a guide lagged badly (reported 2026-11-24). Tested in `clip.test.ts`.
+
 ## Selecting
 
 - **The left button belongs to the active tool.** With Select or Board active, a
   left drag no longer orbits. Orbit is the middle button, the Orbit tool, or two
   fingers.
-- **Drawing starts with nothing selected.** Switching to the Board tool clears
-  the selection, so Delete can never remove something that is out of mind.
+- **Tools that ignore the selection start with nothing selected.** Switching to
+  Board, Pull, or Tape clears the selection, so Delete can never remove
+  something that is out of mind. Move and Rotate keep it, because they use it.
+- **A dragged box selects.** Dragged to the right, it takes boards that are
+  entirely inside. Dragged to the left, it takes anything it touches. Shift
+  adds to what was selected, and Escape puts the selection back.
+- **A guide wins over a board under the same click.** A guide is thin, so it
+  gets first claim.
 
 ## Units
 
@@ -90,4 +144,12 @@ an earlier fix. Where a note can be checked by a test, the test is named.
 - Is the snap reach of 10 pixels too grabby or too shy?
 - Should the Board tool stay active after a board, as it does now, or go back
   to Select?
-- Should a left drag on empty space orbit while Select is active?
+- Should a left drag on empty space orbit while Select is active? It draws a
+  selection box as of milestone 3.
+- Should a free move stay level, as it does now, or follow faces and the floor
+  under the cursor?
+- Is Ctrl the right key for a copy, and should it be held or tapped? It is a
+  tap now.
+- Are quarter turns enough for Rotate until tilted boards arrive?
+- Should guides stay until deleted, as they do now, or is a "clear all guides"
+  command needed?
