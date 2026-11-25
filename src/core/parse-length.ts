@@ -7,6 +7,7 @@ import { NM_PER_INCH, NM_PER_MM, type Length, type UnitSystem } from './units';
  *   34 1/2   34-1/2   1/2   34.5   34 1/2"   34.5in
  *   2' 6 1/2"   2ft 6   8'
  *   876mm   87.6cm   2.4m
+ *   36 - 3/4 * 2   (simple sums)
  *
  * A bare number is read in the project's own units: inches for imperial,
  * millimeters for metric. A unit on the value always wins, so metric can be
@@ -78,8 +79,46 @@ function parseUnsigned(text: string, defaultUnit: keyof typeof NM_PER): number |
   return null;
 }
 
-/** Returns the length in document units, or null when the text is not a measurement. */
+const PLAIN_NUMBER_RE = new RegExp(`^${DECIMAL}$`);
+
+/**
+ * One term of a sum: a measurement, optionally multiplied by plain numbers, as
+ * in "3/4 * 2". Exactly one factor carries the length.
+ */
+function parseTerm(text: string, system: UnitSystem): Length | null {
+  const factors = text.split('*').map((factor) => factor.trim());
+  if (factors.length === 1) return parseSingle(text, system);
+  // The one factor that is more than a plain number is the length. With none, the first is.
+  const lengths = factors.filter((factor) => !PLAIN_NUMBER_RE.test(factor));
+  if (lengths.length > 1) return null;
+  const lengthIndex = lengths.length === 1 ? factors.indexOf(lengths[0]!) : 0;
+  const length = parseSingle(factors[lengthIndex]!, system);
+  if (length === null) return null;
+  let product = length;
+  factors.forEach((factor, index) => {
+    if (index !== lengthIndex) product *= Number(factor);
+  });
+  product = Math.round(product);
+  return Number.isSafeInteger(product) ? product : null;
+}
+
+/**
+ * Returns the length in document units, or null when the text is not a
+ * measurement. Simple sums work too: "36 - 3/4 * 2" is 34 1/2. A plus or minus
+ * needs a space on both sides, so "34-1/2" still means 34 1/2.
+ */
 export function parseLength(input: string, system: UnitSystem): Length | null {
+  const parts = input.trim().split(/\s+([+-])\s+/);
+  let total = 0;
+  for (let index = 0; index < parts.length; index += 2) {
+    const term = parseTerm(parts[index]!, system);
+    if (term === null) return null;
+    total += parts[index - 1] === '-' ? -term : term;
+  }
+  return Number.isSafeInteger(total) ? total : null;
+}
+
+function parseSingle(input: string, system: UnitSystem): Length | null {
   let text = input.trim().toLowerCase();
   if (text === '') return null;
   let sign = 1;

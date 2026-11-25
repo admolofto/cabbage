@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Board } from '../core/board';
+import { createGuide } from '../core/document';
 import { inchFraction, mm } from '../core/units';
 import { createTestView } from '../test-support/view';
-import { findSnap, firstSurfaceHit } from './inference';
+import { findAxisInference, findSnap, firstSurfaceHit, guideUnderCursor } from './inference';
 
 const inch = inchFraction;
 
@@ -109,5 +110,56 @@ describe('firstSurfaceHit', () => {
 
   it('misses when the ray passes beside every board', () => {
     expect(firstSurfaceHit([BOX], view.pointerAt([inch(60), 0, 0]).view.ray)).toBeNull();
+  });
+});
+
+describe('guides', () => {
+  // A guide along X on top of the box, 4" back from its front edge, and one along Y, 10" from its left end.
+  const alongX = createGuide(0, [0, inch(4), inch(6)]);
+  const alongY = createGuide(1, [inch(10), 0, inch(6)]);
+
+  it('snaps along a guide', () => {
+    const snap = findSnap([], view.pointerAt([inch(40), inch(4), inch(6)], { y: 3 }).view, undefined, [alongX]);
+    expect(snap).toMatchObject({ kind: 'guide', guideId: alongX.id, edgeAxis: 0 });
+    expect(snap?.point[1]).toBe(inch(4));
+    expect(snap?.point[2]).toBe(inch(6));
+  });
+
+  it('snaps to where two guides cross', () => {
+    const snap = findSnap([], view.pointerAt([inch(10), inch(4), inch(6)], { x: 3 }).view, undefined, [alongX, alongY]);
+    expect(snap).toMatchObject({ kind: 'intersection', point: [inch(10), inch(4), inch(6)] });
+  });
+
+  it('snaps to where a guide crosses a board edge', () => {
+    const snap = findSnap([BOX], view.pointerAt([inch(24), inch(4), inch(6)], { x: 2, y: 2 }).view, undefined, [alongX]);
+    expect(snap).toMatchObject({ kind: 'intersection', point: [inch(24), inch(4), inch(6)], boardId: 'box' });
+  });
+
+  it('prefers a guide to the face under it', () => {
+    const snap = findSnap([BOX], view.pointerAt([inch(15), inch(4), inch(6)], { y: 2 }).view, undefined, [alongX]);
+    expect(snap?.kind).toBe('guide');
+  });
+
+  it('finds the guide under the cursor', () => {
+    const on = view.pointerAt([inch(-20), inch(4), inch(6)], { y: -3 }).view;
+    const off = view.pointerAt([inch(-20), inch(10), inch(6)]).view;
+    expect(guideUnderCursor([alongX, alongY], on)?.id).toBe(alongX.id);
+    expect(guideUnderCursor([alongX, alongY], off)).toBeNull();
+  });
+});
+
+describe('findAxisInference', () => {
+  const start = [inch(10), inch(5), 0] as const;
+
+  it('notices a cursor heading along an axis', () => {
+    const along = findAxisInference(view.pointerAt([inch(30), inch(5), 0], { y: 4 }).view, start);
+    expect(along?.axis).toBe(0);
+    expect(along?.point[1]).toBe(inch(5));
+    expect(findAxisInference(view.pointerAt([inch(10), inch(5), inch(20)], { x: 3 }).view, start)?.axis).toBe(2);
+  });
+
+  it('stays quiet off the axes and right at the start', () => {
+    expect(findAxisInference(view.pointerAt([inch(30), inch(25), 0]).view, start)).toBeNull();
+    expect(findAxisInference(view.pointerAt(start, { x: 3 }).view, start)).toBeNull();
   });
 });
