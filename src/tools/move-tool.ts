@@ -1,11 +1,20 @@
-import type { Board } from '../core/board';
-import { addBoards, createId, replaceBoards, type CabbageDocument } from '../core/document';
+import { ownerId } from '../core/cabinet';
+import { modelBoards, type CabbageDocument } from '../core/document';
 import type { Editor } from '../core/editor';
 import { parseLength } from '../core/parse-length';
-import { isZeroVec, moveBoard, scaleVec, subtractVec, vecLength } from '../core/transform';
+import {
+  addCopies,
+  movePicked,
+  pickedCount,
+  pickedLabel,
+  pickedSolids,
+  replacePicked,
+  type Picked,
+} from '../core/picked';
+import { isZeroVec, scaleVec, subtractVec, vecLength } from '../core/transform';
 import { AXES, addVec, withAxis, type Axis, type Vec3L } from '../core/vec';
 import { findAxisInference, findSnap, pointOnPlane } from '../inference/inference';
-import { boardsToEdit, countLabel, isDefinite, onLine } from './pick';
+import { isDefinite, onLine, pickToEdit, selectedPicked } from './pick';
 import { dragged, formatSize, roundAlong } from './steps';
 import {
   NO_PREVIEW,
@@ -18,8 +27,8 @@ import {
 } from './tool';
 
 /**
- * Moves or copies boards: click a point to pick them up, click where that
- * point goes. With nothing selected it moves the board that was clicked.
+ * Moves or copies boards and cabinets: click a point to pick them up, click
+ * where that point goes. With nothing selected it moves what was clicked.
  *
  * Free movement stays level: it slides in the horizontal plane through the
  * grabbed point, follows an axis when the cursor heads along one, and goes
@@ -28,7 +37,7 @@ import {
  */
 
 interface Moving {
-  boards: readonly Board[];
+  picked: Picked;
   start: Vec3L;
   end: Vec3L;
   /** An axis locked with the arrow keys. */
@@ -45,7 +54,7 @@ interface Moving {
 
 /** The move just made, kept so typed text can still correct or repeat it. */
 interface LastMove {
-  boards: readonly Board[];
+  picked: Picked;
   delta: Vec3L;
   copy: boolean;
   /** How many copies, and whether they divide the distance instead of repeating it. */
@@ -56,7 +65,7 @@ interface LastMove {
 }
 
 const HINTS = {
-  idle: 'Click a point on a board to pick it up. Select boards first to move several together.',
+  idle: 'Click a point on a board or cabinet to pick it up. Select several first to move them together.',
   moving: 'Click where it goes, or type a distance. Arrow keys lock an axis. Ctrl makes a copy.',
   copied: 'Type 3x to repeat the copy 3 times, or /3 to space 3 copies evenly up to here.',
 } as const;
@@ -108,14 +117,14 @@ export class MoveTool implements Tool {
       this.finish(this.moving);
     } else {
       const { document } = this.editor.getState();
-      const snap = findSnap(document.boards, pointer.view, undefined, document.guides);
+      const snap = findSnap(modelBoards(document), pointer.view, undefined, document.guides);
       if (!snap) return;
-      const boards = boardsToEdit(this.editor, pointer, snap);
-      if (boards.length === 0) return;
+      const picked = pickToEdit(this.editor, pointer, snap);
+      if (pickedCount(picked) === 0) return;
       this.last = null;
       this.editor.setHovered(null);
       this.moving = {
-        boards,
+        picked,
         start: snap.point,
         end: snap.point,
         arrowAxis: null,
@@ -228,7 +237,7 @@ export class MoveTool implements Tool {
     if (!moving) return this.marker ? { ...NO_PREVIEW, marker: this.marker } : NO_PREVIEW;
     const { start, end } = moving;
     const delta = subtractVec(end, start);
-    const moved = moving.boards.map((board) => moveBoard(board, delta));
+    const moved = pickedSolids(movePicked(moving.picked, delta));
     const { units } = this.editor.getState();
     return {
       ...NO_PREVIEW,
@@ -244,11 +253,11 @@ export class MoveTool implements Tool {
 
   private hoverAt(pointer: ToolPointer): void {
     const { document } = this.editor.getState();
-    const snap = findSnap(document.boards, pointer.view, undefined, document.guides);
+    const snap = findSnap(modelBoards(document), pointer.view, undefined, document.guides);
     this.marker = markerFor(snap);
-    // With nothing selected, show which board a click would pick up.
-    const selected = document.boards.some((board) => this.editor.getState().selection.has(board.id));
-    this.editor.setHovered(selected ? null : (snap?.boardId ?? null));
+    // With nothing selected, show what a click would pick up.
+    const selected = pickedCount(selectedPicked(this.editor)) > 0;
+    this.editor.setHovered(selected || !snap?.boardId ? null : ownerId(snap.boardId));
   }
 
   private track(moving: Moving, pointer: ToolPointer): void {
@@ -256,8 +265,9 @@ export class MoveTool implements Tool {
     const { start } = moving;
     const { view } = pointer;
     // Boards being moved are left out, so they never snap to themselves. Copies leave the originals in place.
-    const ids = new Set(moving.boards.map((board) => board.id));
-    const others = moving.copy ? document.boards : document.boards.filter((board) => !ids.has(board.id));
+    const ids = new Set(pickedSolids(moving.picked).map((board) => board.id));
+    const solids = modelBoards(document);
+    const others = moving.copy ? solids : solids.filter((board) => !ids.has(board.id));
 
     // Holding Shift keeps the axis the movement is already following.
     if (!pointer.shiftKey) moving.shiftAxis = null;
@@ -311,32 +321,33 @@ export class MoveTool implements Tool {
     if (isZeroVec(delta)) return;
     const before = this.editor.getState().document;
     this.commit(
-      { boards: moving.boards, delta, copy: moving.copy, count: 1, divided: false, before, after: before },
+      { picked: moving.picked, delta, copy: moving.copy, count: 1, divided: false, before, after: before },
       false,
     );
   }
 
   /** Builds the model as it stands after a move or a run of copies, starting from the model before it. */
-  private apply(move: LastMove): { document: CabbageDocument; copies: Board[] } {
-    const { boards, delta, before } = move;
-    if (!move.copy) {
-      return { document: replaceBoards(before, boards.map((board) => moveBoard(board, delta))), copies: [] };
-    }
-    const copies: Board[] = [];
+  private apply(move: LastMove): { document: CabbageDocument; copies: string[] } {
+    const { picked, delta, before } = move;
+    if (!move.copy) return { document: replacePicked(before, movePicked(picked, delta)), copies: [] };
+    let document = before;
+    const copies: string[] = [];
     for (let index = 1; index <= move.count; index += 1) {
       const step = move.divided ? scaleVec(delta, index / move.count) : scaleVec(delta, index);
-      for (const board of boards) copies.push({ ...moveBoard(board, step), id: createId() });
+      const added = addCopies(document, movePicked(picked, step));
+      document = added.document;
+      copies.push(...added.ids);
     }
-    return { document: addBoards(before, copies), copies };
+    return { document, copies };
   }
 
   /** Puts a move into the model, as a new undo step or as a correction of the last one. */
   private commit(move: LastMove, amend: boolean): void {
     const { document, copies } = this.apply(move);
     if (amend) this.editor.amendDocument(document);
-    else this.editor.commitDocument(document, countLabel(move.copy ? 'Copy' : 'Move', move.boards.length));
+    else this.editor.commitDocument(document, pickedLabel(move.copy ? 'Copy' : 'Move', move.picked));
     // The copies become the selection, ready to be moved or copied again.
-    if (copies.length > 0) this.editor.setSelection(copies.map((board) => board.id));
+    if (copies.length > 0) this.editor.setSelection(copies);
     this.last = { ...move, after: this.editor.getState().document };
   }
 

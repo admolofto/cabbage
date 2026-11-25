@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { CABINET_KINDS, CABINET_KIND_NAMES, type CabinetKind } from '../core/cabinet';
 import type { Editor } from '../core/editor';
 import { THICKNESS_PRESETS, allMaterials, type Material, type Stock } from '../core/materials';
 import { formatLength, type UnitSettings } from '../core/units';
@@ -10,13 +11,16 @@ interface StockPickerProps {
   stock: Stock;
   materials: readonly Material[];
   units: UnitSettings;
+  /** The kind of cabinet about to be placed, while the Cabinet tool is picked. Otherwise null. */
+  cabinetKind: CabinetKind | null;
 }
 
 /**
- * What the next board drawn is made of and how thick it starts out. The
- * material list ends with a way to add one of your own to the project.
+ * What the next board or cabinet is made of and how thick its stock is. The
+ * material list ends with a way to add one of your own to the project. With
+ * the Cabinet tool picked, it also offers the kind of cabinet.
  */
-export function StockPicker({ editor, stock, materials, units }: StockPickerProps) {
+export function StockPicker({ editor, stock, materials, units, cabinetKind }: StockPickerProps) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const [grain, setGrain] = useState(true);
@@ -35,12 +39,28 @@ export function StockPicker({ editor, stock, materials, units }: StockPickerProp
     setRefused(false);
   };
 
+  const heading = cabinetKind === null ? 'New boards' : 'New cabinets';
+
   return (
     <div className="stockbar">
-      <div className="stock-row" role="group" aria-label="New boards">
-        <span className="readout-label">New boards</span>
+      <div className="stock-row" role="group" aria-label={heading}>
+        <span className="readout-label">{heading}</span>
+        {cabinetKind !== null && (
+          <div className="segmented" role="group" aria-label="Kind of cabinet">
+            {CABINET_KINDS.map((kind) => (
+              <button
+                key={kind}
+                type="button"
+                aria-pressed={kind === cabinetKind}
+                onClick={() => editor.setCabinetKind(kind)}
+              >
+                {CABINET_KIND_NAMES[kind]}
+              </button>
+            ))}
+          </div>
+        )}
         <select
-          aria-label="Material for new boards"
+          aria-label={cabinetKind === null ? 'Material for new boards' : 'Material for new cabinets'}
           value={stock.materialId}
           onChange={(event) => {
             if (event.target.value === ADD_MATERIAL) setAdding(true);
@@ -55,7 +75,7 @@ export function StockPicker({ editor, stock, materials, units }: StockPickerProp
           <option value={ADD_MATERIAL}>Add a material…</option>
         </select>
         <select
-          aria-label="Thickness for new boards"
+          aria-label={cabinetKind === null ? 'Thickness for new boards' : 'Thickness for new cabinets'}
           value={stock.thickness}
           onChange={(event) => editor.setStock({ thickness: Number(event.target.value) })}
         >

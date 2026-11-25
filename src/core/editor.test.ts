@@ -105,7 +105,7 @@ describe('documents', () => {
 
   it('refuses saved data that is not a document', () => {
     expect(parseDocument(null)).toBeNull();
-    expect(parseDocument({ version: 3, boards: [] })).toBeNull();
+    expect(parseDocument({ version: 99, boards: [] })).toBeNull();
     expect(parseDocument({ version: 1, boards: [{ ...board('a'), size: [1, 0, 1] }] })).toBeNull();
     expect(parseDocument({ version: 1, boards: [{ ...board('a'), min: [0.5, 0, 0] }] })).toBeNull();
     expect(parseDocument({ version: 1, boards: [board('a'), board('a')] })).toBeNull();

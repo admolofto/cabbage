@@ -73,10 +73,10 @@ export function CommitField({ label, value, placeholder, onCommit }: TextFieldPr
   );
 }
 
-/** The value all the boards share, or null when they differ. */
-function shared<T>(boards: readonly Board[], read: (board: Board) => T): T | null {
-  const first = read(boards[0]!);
-  return boards.every((board) => read(board) === first) ? first : null;
+/** The value all the items share, or null when they differ. */
+export function shared<Item, T>(items: readonly Item[], read: (item: Item) => T): T | null {
+  const first = read(items[0]!);
+  return items.every((item) => read(item) === first) ? first : null;
 }
 
 interface InspectorProps {

@@ -1,5 +1,6 @@
 import { faceAxis, grainAxis, type Board } from './board';
-import type { CabbageDocument } from './document';
+import { ownerId } from './cabinet';
+import { modelBoards, type CabbageDocument } from './document';
 import { SHEET_SIZE, allMaterials, findMaterial, type Material } from './materials';
 import { formatLength, toInches, toMm, type Length, type UnitSettings } from './units';
 import { otherAxes } from './vec';
@@ -30,6 +31,10 @@ export interface CutPart extends PartSize {
   /** The different names the boards on this line carry, in the order first met. */
   names: readonly string[];
   boardIds: readonly string[];
+  /** What selecting this line selects: each board that stands alone, and each cabinet the others belong to. */
+  ownerIds: readonly string[];
+  /** True when every board on the line stands alone, so the line can be renamed. Cabinets name their own boards. */
+  renamable: boolean;
   /** True when the part is bigger than a full sheet of its material. */
   oversize: boolean;
 }
@@ -83,7 +88,7 @@ export function buildCutList(document: CabbageDocument): CutGroup[] {
   const order = allMaterials(document.materials).map((material) => material.id);
   const groups = new Map<string, { material: Material; thickness: Length; parts: Map<string, CutPart> }>();
 
-  for (const board of document.boards) {
+  for (const board of modelBoards(document)) {
     const material = findMaterial(document.materials, board.materialId);
     const size = partSize(board, material.grain);
     const groupKey = `${material.id}|${size.thickness}`;
@@ -100,6 +105,8 @@ export function buildCutList(document: CabbageDocument): CutGroup[] {
         quantity: part.quantity + 1,
         names: part.names.includes(board.name) ? part.names : [...part.names, board.name],
         boardIds: [...part.boardIds, board.id],
+        ownerIds: part.ownerIds.includes(ownerId(board.id)) ? part.ownerIds : [...part.ownerIds, ownerId(board.id)],
+        renamable: part.renamable && board.cabinetId === undefined,
       });
     } else {
       group.parts.set(key, {
@@ -108,6 +115,8 @@ export function buildCutList(document: CabbageDocument): CutGroup[] {
         quantity: 1,
         names: [board.name],
         boardIds: [board.id],
+        ownerIds: [ownerId(board.id)],
+        renamable: board.cabinetId === undefined,
         oversize: material.kind === 'sheet' && !fitsOnSheet(size, material.grain),
       });
     }

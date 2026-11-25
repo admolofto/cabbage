@@ -41,7 +41,8 @@ interface CutListPanelProps {
 /**
  * The cut list, docked under the 3D view. It is worked out from the boards as
  * they stand, so it is always current. Clicking a line selects its boards in
- * the view, and typing in the Part column renames them all at once.
+ * the view, or the cabinets they belong to, and typing in the Part column
+ * renames boards that stand alone, all at once.
  */
 export function CutListPanel({ editor, document, selection, units, onClose }: CutListPanelProps) {
   const groups = useMemo(() => buildCutList(document), [document]);
@@ -114,18 +115,25 @@ export function CutListPanel({ editor, document, selection, units, onClose }: Cu
               {group.parts.map((part) => (
                 <tr
                   key={part.key}
-                  data-selected={part.boardIds.every((id) => selection.has(id)) || undefined}
-                  onClick={() => selectParts(part.boardIds)}
+                  data-selected={part.ownerIds.every((id) => selection.has(id)) || undefined}
+                  onClick={() => selectParts(part.ownerIds)}
                 >
                   <td className="number">{part.quantity}</td>
                   <td className="part-name">
                     <div className="part-cell">
-                      <CommitField
-                        label={`Name of ${partName(part)}`}
-                        value={partName(part)}
-                        onCommit={(value) => editor.renameBoards(part.boardIds, value)}
-                      />
-                      <span className="print-name">{partName(part)}</span>
+                      {part.renamable ? (
+                        <>
+                          <CommitField
+                            label={`Name of ${partName(part)}`}
+                            value={partName(part)}
+                            onCommit={(value) => editor.renameBoards(part.boardIds, value)}
+                          />
+                          <span className="print-name">{partName(part)}</span>
+                        </>
+                      ) : (
+                        // A cabinet names its own boards, so these are not typed over.
+                        <span className="part-fixed">{partName(part)}</span>
+                      )}
                       {part.oversize && <span className="warning-chip">Bigger than a full sheet</span>}
                     </div>
                   </td>

@@ -498,10 +498,13 @@ kbd {
 
 /* A short view, as with the cut list open: the rail folds into two columns so every tool stays in reach. */
 
-@container view (max-height: 570px) {
+@container view (max-height: 620px) {
   .toolrail {
+    /* Too short to center: hang the rail just under the stock picker. */
+    top: 68px;
     display: grid;
     grid-template-columns: repeat(2, 44px);
+    transform: none;
   }
 
   .tool-button[data-divided] {
@@ -869,6 +872,7 @@ kbd {
 
 .stock-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   align-self: flex-start;
@@ -977,6 +981,73 @@ kbd {
 .field > span:first-child {
   color: var(--ink-soft);
   font-size: 12px;
+}
+
+.field-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.field-row > span:first-child {
+  flex: none;
+  font-size: 13px;
+}
+
+.field.field-row input[type='text'] {
+  width: 132px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.size-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  width: 132px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+}
+
+.stepper button {
+  width: 34px;
+  height: 30px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  color: var(--ink-soft);
+  font-size: 17px;
+  line-height: 1;
+}
+
+.stepper button:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.stepper button:disabled {
+  opacity: 0.35;
+}
+
+.stepper output {
+  flex: 1;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.unlock-button {
+  align-self: stretch;
+  border-color: var(--rule);
+  color: var(--ink);
 }
 
 .inspector-size {
@@ -1172,6 +1243,10 @@ kbd {
 
 .print-name {
   display: none;
+}
+
+.part-fixed {
+  font-weight: 600;
 }
 
 .warning-chip {

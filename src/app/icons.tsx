@@ -52,6 +52,16 @@ export function BoardIcon() {
   );
 }
 
+/** A cabinet seen from the front: two doors on a recessed base. */
+export function CabinetIcon() {
+  return (
+    <Icon>
+      <rect x="4.5" y="3.5" width="15" height="14.5" rx="1" />
+      <path d="M12 3.5V18M9.5 10v2.2M14.5 10v2.2M6.5 18v2.5h11V18" />
+    </Icon>
+  );
+}
+
 /** A block with an arrow drawing one face outward. */
 export function PullIcon() {
   return (

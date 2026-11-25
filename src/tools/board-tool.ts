@@ -1,5 +1,5 @@
 import { boxFromCorners, tidyBoard, type Board, type Box } from '../core/board';
-import { createId, nextBoardName, type CabbageDocument } from '../core/document';
+import { createId, modelBoards, nextBoardName, type CabbageDocument } from '../core/document';
 import type { Editor } from '../core/editor';
 import { parseLength, parseLengthList } from '../core/parse-length';
 import { formatLength, type Length } from '../core/units';
@@ -286,7 +286,7 @@ export class BoardTool implements Tool {
 
   private moveIdle(pointer: ToolPointer): void {
     const { document } = this.editor.getState();
-    let snap = findSnap(document.boards, pointer.view, undefined, document.guides);
+    let snap = findSnap(modelBoards(document), pointer.view, undefined, document.guides);
     if (snap && (snap.kind === 'floor' || snap.kind === 'face')) {
       // A free point lands on round numbers, so drawn positions and sizes come out clean.
       let point = snap.point;
@@ -308,7 +308,7 @@ export class BoardTool implements Tool {
     const { document } = this.editor.getState();
     const axis = phase.lockedAxis ?? phase.autoAxis;
     const constraint = { kind: 'plane', axis, value: phase.start[axis] } as const;
-    const snap = findSnap(document.boards, pointer.view, constraint, document.guides);
+    const snap = findSnap(modelBoards(document), pointer.view, constraint, document.guides);
     if (!snap) return;
     let corner = snap.point;
     // Whatever the snap left free lands on round sizes: both directions of a
@@ -363,7 +363,7 @@ export class BoardTool implements Tool {
 
     const { document, stock } = this.editor.getState();
     const { axis, anchor } = phase;
-    const snap = findSnap(document.boards, pointer.view, { kind: 'line', axis, through: anchor }, document.guides);
+    const snap = findSnap(modelBoards(document), pointer.view, { kind: 'line', axis, through: anchor }, document.guides);
     if (!snap) return;
     let thickness = snap.point[axis] - anchor[axis];
     this.marker = markerFor(snap);

@@ -1,12 +1,24 @@
 import { edgeFaces, faceAxis, tidyBoard, type Board, type FaceIndex } from './board';
 import {
+  cabinetBoards,
+  createCabinet,
+  nextCabinetName,
+  resizeCabinet,
+  type Cabinet,
+  type CabinetKind,
+  type CabinetSize,
+} from './cabinet';
+import {
   EMPTY_DOCUMENT,
   addBoards,
+  addCabinets,
   cleanProjectName,
+  createId,
   parseDocument,
   removeItems,
   replaceBoard,
   updateBoards,
+  updateCabinets,
   type CabbageDocument,
 } from './document';
 import {
@@ -41,7 +53,7 @@ import {
 } from './units';
 import type { Axis } from './vec';
 
-export type ToolId = 'select' | 'board' | 'pull' | 'move' | 'rotate' | 'tape' | 'orbit' | 'pan';
+export type ToolId = 'select' | 'board' | 'cabinet' | 'pull' | 'move' | 'rotate' | 'tape' | 'orbit' | 'pan';
 
 /** The measurement box: what the active tool is measuring, and anything being typed into it. */
 export interface MeasurementState {
@@ -65,6 +77,8 @@ export interface EditorState {
   units: UnitSettings;
   /** What the next board drawn is made of, and how thick it starts out. */
   stock: Stock;
+  /** The kind of cabinet the Cabinet tool places next. */
+  cabinetKind: CabinetKind;
   /** True when the model has changes that are not in a file yet. */
   unsaved: boolean;
   measurement: MeasurementState;
@@ -175,6 +189,7 @@ export class Editor {
       units,
       // A stock naming a material this project does not have falls back to the default one.
       stock: { ...stock, materialId: findMaterial(this.history.present.materials, stock.materialId).id },
+      cabinetKind: 'base',
       unsaved: this.isUnsaved(),
       measurement: NO_MEASUREMENT,
       hint: '',
@@ -210,15 +225,21 @@ export class Editor {
     this.amendDocument(replaceBoard(this.state.document, board));
   }
 
-  /** Removes the selected boards and guides as one undo step. */
+  /** Removes the selected boards, cabinets, and guides as one undo step. */
   deleteSelection(): boolean {
     const { selection, document } = this.state;
     if (selection.size === 0) return false;
-    const boards = document.boards.filter((board) => selection.has(board.id)).length;
-    const guides = document.guides.filter((guide) => selection.has(guide.id)).length;
-    const count = (amount: number, one: string) => (amount === 1 ? one : `${amount} ${one}s`);
-    const parts = [boards > 0 ? count(boards, 'board') : '', guides > 0 ? count(guides, 'guide') : ''];
-    this.commitDocument(removeItems(document, selection), `Delete ${parts.filter(Boolean).join(' and ')}`);
+    const count = (items: readonly { id: string }[], one: string) => {
+      const amount = items.filter((item) => selection.has(item.id)).length;
+      return amount === 0 ? '' : amount === 1 ? one : `${amount} ${one}s`;
+    };
+    const parts = [
+      count(document.boards, 'board'),
+      count(document.cabinets, 'cabinet'),
+      count(document.guides, 'guide'),
+    ].filter(Boolean);
+    const named = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0];
+    this.commitDocument(removeItems(document, selection), `Delete ${named}`);
     return true;
   }
 
@@ -278,6 +299,107 @@ export class Editor {
     if (taken) return null;
     this.commitDocument({ ...document, materials: [...document.materials, material] }, 'Add material');
     return material;
+  }
+
+  // Cabinets
+
+  /**
+   * Adds a cabinet in the stock picked for new work and returns it. Left
+   * unsaid, its kind is the one picked for new cabinets and its size the
+   * usual one for that kind.
+   */
+  placeCabinet(
+    position: Cabinet['position'],
+    size?: CabinetSize,
+    kind: CabinetKind = this.state.cabinetKind,
+  ): Cabinet | null {
+    const { document } = this.state;
+    const name = nextCabinetName(document.cabinets, kind);
+    const cabinet = this.newCabinet(createId('c'), name, position, size, kind);
+    if (!cabinet) return null;
+    this.commitDocument(addCabinets(document, [cabinet]), 'Place cabinet');
+    return cabinet;
+  }
+
+  /** A cabinet of the kind and stock picked for new ones, not yet in the model. Null when the size cannot be built. */
+  newCabinet(
+    id: string,
+    name: string,
+    position: Cabinet['position'],
+    size?: CabinetSize,
+    kind: CabinetKind = this.state.cabinetKind,
+  ): Cabinet | null {
+    const { units, stock } = this.state;
+    const cabinet = createCabinet(id, name, kind, units.system, stock, position);
+    return size ? resizeCabinet(cabinet, size) : cabinet;
+  }
+
+  /** Changes cabinets as one undo step. Does nothing when nothing would change. */
+  private changeCabinets(ids: Iterable<string>, label: string, change: (cabinet: Cabinet) => Cabinet): boolean {
+    const next = updateCabinets(this.state.document, new Set(ids), change);
+    if (next === this.state.document) return false;
+    const count = next.cabinets.filter((cabinet, index) => cabinet !== this.state.document.cabinets[index]).length;
+    this.commitDocument(next, count === 1 ? label : `${label} of ${count} cabinets`);
+    return true;
+  }
+
+  renameCabinets(ids: Iterable<string>, name: string): boolean {
+    const cleaned = name.replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (cleaned === '') return false;
+    return this.changeCabinets(ids, 'Rename', (cabinet) =>
+      cabinet.name === cleaned ? cabinet : { ...cabinet, name: cleaned },
+    );
+  }
+
+  /**
+   * Changes sizes of cabinets: width, height, depth, toe kick, or the number
+   * of shelves. When any of the cabinets could not be built that way, none of
+   * them is changed.
+   */
+  resizeCabinets(ids: Iterable<string>, change: Partial<CabinetSize & { toeKick: Length; shelves: number }>): boolean {
+    const wanted = new Set(ids);
+    const resized = new Map<string, Cabinet>();
+    for (const cabinet of this.state.document.cabinets) {
+      if (!wanted.has(cabinet.id)) continue;
+      const next = resizeCabinet(cabinet, change);
+      if (!next) return false;
+      const same = (Object.keys(change) as (keyof typeof change)[]).every((key) => next[key] === cabinet[key]);
+      if (!same) resized.set(cabinet.id, next);
+    }
+    return this.changeCabinets(resized.keys(), 'Resize cabinet', (cabinet) => resized.get(cabinet.id) ?? cabinet);
+  }
+
+  setCabinetMaterial(ids: Iterable<string>, materialId: string): boolean {
+    const id = findMaterial(this.state.document.materials, materialId).id;
+    return this.changeCabinets(ids, 'Change material', (cabinet) =>
+      cabinet.materialId === id ? cabinet : { ...cabinet, materialId: id },
+    );
+  }
+
+  /**
+   * Turns cabinets into the plain boards they are made of, which can then be
+   * changed one by one. The boards become the selection.
+   */
+  unlockCabinets(ids: Iterable<string>): boolean {
+    const wanted = new Set(ids);
+    const { document } = this.state;
+    const cabinets = document.cabinets.filter((cabinet) => wanted.has(cabinet.id));
+    if (cabinets.length === 0) return false;
+    const boards = cabinets.flatMap((cabinet) =>
+      cabinetBoards(cabinet).map((board): Board => {
+        const plain = { ...board, id: createId() };
+        delete plain.cabinetId;
+        return plain;
+      }),
+    );
+    const next = addBoards(removeItems(document, new Set(cabinets.map((cabinet) => cabinet.id))), boards);
+    this.commitDocument(next, cabinets.length === 1 ? 'Unlock cabinet' : `Unlock ${cabinets.length} cabinets`);
+    this.setSelection(boards.map((board) => board.id));
+    return true;
+  }
+
+  setCabinetKind(kind: CabinetKind): void {
+    if (kind !== this.state.cabinetKind) this.update({ cabinetKind: kind });
   }
 
   // The project as a whole
@@ -343,7 +465,8 @@ export class Editor {
   setTool(tool: ToolId): void {
     if (tool === this.state.tool) return;
     // Tools that ignore the selection start with nothing selected, so Delete can never remove something out of mind.
-    const selection = tool === 'board' || tool === 'pull' || tool === 'tape' ? EMPTY_SELECTION : this.state.selection;
+    const clears = tool === 'board' || tool === 'cabinet' || tool === 'pull' || tool === 'tape';
+    const selection = clears ? EMPTY_SELECTION : this.state.selection;
     this.update({ tool, selection, hovered: null, measurement: NO_MEASUREMENT, hint: '' });
   }
 
@@ -394,7 +517,7 @@ export class Editor {
 
   private afterDocumentChange(): void {
     const document = this.history.present;
-    const ids = new Set([...document.boards, ...document.guides].map((item) => item.id));
+    const ids = new Set([...document.boards, ...document.cabinets, ...document.guides].map((item) => item.id));
     const selection = new Set([...this.state.selection].filter((id) => ids.has(id)));
     const hovered = this.state.hovered && ids.has(this.state.hovered) ? this.state.hovered : null;
     this.write(DOCUMENT_KEY, JSON.stringify(document));
@@ -406,7 +529,7 @@ export class Editor {
   private isUnsaved(): boolean {
     const document = this.history.present;
     if (document === this.saved) return false;
-    return document.boards.length > 0 || document.guides.length > 0 || document.materials.length > 0;
+    return [document.boards, document.cabinets, document.guides, document.materials].some((items) => items.length > 0);
   }
 
   private update(change: Partial<EditorState>): void {

@@ -149,6 +149,62 @@ Tested in `edit-tools.test.ts` unless a note says otherwise.
 - **The print view is only the list.** With the cut list open, printing leaves
   out the 3D view and the controls.
 
+## Cabinets (milestone 5)
+
+- **A cabinet is a few sizes, and its boards follow.** Width, height, depth,
+  toe kick, and a number of shelves. The boards are worked out from those
+  every time they are needed and never saved, so the view and the cut list
+  cannot disagree with the cabinet. Tested in `cabinet.test.ts`.
+- **A cabinet is one thing.** Clicking any of its boards selects the whole
+  cabinet. Select, Move, copy, Rotate, and Delete treat it the way they treat a
+  board. Its boards cannot be changed one at a time until it is unlocked.
+- **Unlock is a one-way door, with undo.** "Unlock into boards" leaves the
+  plain boards the cabinet was made of, selected and ready to change. They no
+  longer resize together.
+- **The first build is the plainest one.** Frameless, butt joints, the sides
+  running floor to top, the bottom and top between them, a 1/4" back applied
+  over the back edges, and a toe kick board set back 3". A base cabinet gets
+  two 4" stretchers in place of a top, since a countertop covers it. Shelves
+  are loose: 1/8" narrower than the opening and 1/4" shy of the front. Fronts
+  of the sides, bottom, top, front stretcher, and shelves are banded. Other
+  ways of building arrive with build styles.
+- **The toe kick notch is not drawn yet.** The sides are full rectangles in
+  the view and in the cut list. Cutting the notch is left to the shop until
+  boards can carry cutouts.
+- **Depth is the case and its back.** Doors will sit in front of it.
+- **Usual sizes to start.** Base 24 x 34 1/2 x 24 with a 4" toe kick, wall
+  24 x 30 x 12, tall 24 x 84 x 24. In millimeters: 600 x 870 x 560 with a
+  150 toe kick, 600 x 720 x 320, and 600 x 2100 x 560. The case stock and
+  material come from the picker at the top left.
+- **A cabinet is held by its back left corner.** The back is what goes against
+  the wall, so clicking the back corner of one cabinet sets the next beside
+  it. If it would land inside the cabinet that was clicked, it goes to the
+  left of the corner instead.
+- **Cabinets line up with the outside of other cabinets.** While placing, a
+  cabinet already in the model counts as the plain box around it. The first
+  build snapped to the boards inside, and a click near a back corner could
+  land on the corner of a side, 1/4" out of line. Tested in
+  `cabinet-tools.test.ts`.
+- **The floor decides the height.** Base and tall cabinets always stand on the
+  floor, and wall cabinets hang with their bottom at 54" (1400 mm), wherever
+  the click lands. Move changes it afterward.
+- **A typed size is for the next cabinet, or the one just placed.** `30` is a
+  width, and `30, 34 1/2, 24` is width, height, and depth. Each kind remembers
+  its own. A cabinet set to the left of a corner grows to the left.
+- **Pull resizes a cabinet by its outside.** Pulling a side changes the width,
+  the front or back the depth, the top or bottom the height, and every board
+  follows. Faces inside the cabinet are not offered.
+- **A cabinet stays upright.** Rotate turns it about the upright line only.
+- **Sizes are changed in the panel, too.** Each change is checked against what
+  can be built: an opening is never less than 50 mm, and a toe kick is either
+  left out or at least as tall as the stock is thick. A size that cannot be
+  built is turned down and the box goes back to what is there.
+- **Width grows to the right.** Changing the width in the panel keeps the back
+  left corner where it is. Neighbors do not move out of the way.
+- **Parts from cabinets are named by the cabinet.** In the cut list, clicking
+  such a line selects the cabinets it came from. Its name cannot be typed
+  over.
+
 ## Files
 
 - **The project takes the name of its file.** Saving as `Hall bookcase.cabbage`
@@ -215,3 +271,17 @@ Tested in `edit-tools.test.ts` unless a note says otherwise.
 - Should a part's length always follow the grain, as it does now, even when
   that makes length the shorter number?
 - Is the cut list better docked under the view, as it is now, or beside it?
+- Is a cabinet built the way you build one? Sides to the floor with a toe
+  kick board between them, or a separate base? Back applied over the edges, or
+  set in a groove? Stretchers or a full top on a base cabinet?
+- Are the usual sizes, the 3" toe kick setback, and the shelf allowances right
+  for your shop?
+- Is holding a cabinet by its back left corner right, or should it follow the
+  cursor by its front?
+- Should a cabinet be turned while it is being placed, for a run along another
+  wall? It is placed facing the front and turned with Rotate now.
+- Should wall cabinets hang at 54", and should that height be typed with the
+  size?
+- When a cabinet gets wider, should the ones beside it move over?
+- Is a mixed selection of boards and cabinets worth a panel of its own? It has
+  none now.

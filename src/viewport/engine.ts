@@ -1,5 +1,6 @@
 import { PerspectiveCamera, Vector3, WebGLRenderer } from 'three';
 import type { Box } from '../core/board';
+import { modelBoards } from '../core/document';
 import type { Editor } from '../core/editor';
 import { chooseGridSteps } from '../core/grid';
 import { NM_PER_MM, mm, toMm, type Length } from '../core/units';
@@ -227,7 +228,7 @@ export class ViewportEngine {
 
   private syncModel(overrides: ReadonlyMap<string, Box> = NO_OVERRIDES): void {
     const { document, selection, hovered } = this.editor.getState();
-    this.scene.setBoards(document.boards, document.materials, selection, hovered, overrides);
+    this.scene.setBoards(modelBoards(document), document.materials, selection, hovered, overrides);
   }
 
   private framedDistance(): number {

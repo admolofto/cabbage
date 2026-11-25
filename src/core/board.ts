@@ -28,6 +28,11 @@ export interface Board {
   grain?: Axis;
   /** The narrow faces that get edge banding. Never one of the two wide faces. */
   banding?: readonly FaceIndex[];
+  /**
+   * Set on a board that a cabinet is made of. Such a board is worked out from
+   * the cabinet each time and is never saved or changed on its own.
+   */
+  cabinetId?: string;
 }
 
 /**

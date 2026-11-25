@@ -1,14 +1,21 @@
 import { tidyBoard, type Board, type FaceIndex } from './board';
+import { cabinetBoards, parseCabinet, type Cabinet } from './cabinet';
+import { createId } from './id';
 import { DEFAULT_MATERIAL_ID, BUILT_IN_MATERIALS, parseMaterial, type Material } from './materials';
 import type { Axis, Vec3L } from './vec';
+
+export { createId };
 
 /**
  * Bump when the saved shape changes, and teach `parseDocument` to read the
  * older shape too, so files and browser saves from earlier versions keep opening.
  *
  * 1: boards and guides. 2: adds the project name, materials, grain, and edge banding.
+ * 3: adds cabinets.
  */
-export const DOCUMENT_VERSION = 2;
+export const DOCUMENT_VERSION = 3;
+
+const OLDER_VERSIONS: readonly unknown[] = [1, 2];
 
 export const DEFAULT_PROJECT_NAME = 'Untitled';
 
@@ -28,7 +35,9 @@ export interface CabbageDocument {
   version: typeof DOCUMENT_VERSION;
   /** The project's name, which is also what its file is called. */
   name: string;
+  /** Boards that stand alone. The boards cabinets are made of are not kept here. See `modelBoards`. */
   boards: readonly Board[];
+  cabinets: readonly Cabinet[];
   guides: readonly Guide[];
   /** Materials this project added to the built-in ones. */
   materials: readonly Material[];
@@ -38,19 +47,33 @@ export const EMPTY_DOCUMENT: CabbageDocument = {
   version: DOCUMENT_VERSION,
   name: DEFAULT_PROJECT_NAME,
   boards: [],
+  cabinets: [],
   guides: [],
   materials: [],
 };
+
+const solidCache = new WeakMap<CabbageDocument, readonly Board[]>();
+
+/**
+ * Every board in the model: the ones that stand alone, then the ones each
+ * cabinet is made of. This is what gets drawn, snapped to, and listed for
+ * cutting. The same model always gives the very same list.
+ */
+export function modelBoards(document: CabbageDocument): readonly Board[] {
+  if (document.cabinets.length === 0) return document.boards;
+  let boards = solidCache.get(document);
+  if (!boards) {
+    boards = [...document.boards, ...document.cabinets.flatMap(cabinetBoards)];
+    solidCache.set(document, boards);
+  }
+  return boards;
+}
 
 /** A project name fit for a title and a file name. Empty names fall back to the default. */
 export function cleanProjectName(name: string): string {
   // Characters a file name cannot hold are dropped, since the name becomes one.
   const cleaned = name.replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
   return cleaned === '' ? DEFAULT_PROJECT_NAME : cleaned;
-}
-
-export function createId(prefix = 'b'): string {
-  return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
 }
 
 export function createGuide(axis: Axis, through: Vec3L): Guide {
@@ -63,13 +86,40 @@ export function addBoards(document: CabbageDocument, boards: readonly Board[]): 
   return { ...document, boards: [...document.boards, ...boards] };
 }
 
-/** Removes boards and guides by id. */
+/** Removes boards, cabinets, and guides by id. */
 export function removeItems(document: CabbageDocument, ids: ReadonlySet<string>): CabbageDocument {
   return {
     ...document,
     boards: document.boards.filter((board) => !ids.has(board.id)),
+    cabinets: document.cabinets.filter((cabinet) => !ids.has(cabinet.id)),
     guides: document.guides.filter((guide) => !ids.has(guide.id)),
   };
+}
+
+export function addCabinets(document: CabbageDocument, cabinets: readonly Cabinet[]): CabbageDocument {
+  return { ...document, cabinets: [...document.cabinets, ...cabinets] };
+}
+
+/** Swaps in new versions of cabinets already in the model, matched by id. */
+export function replaceCabinets(document: CabbageDocument, cabinets: readonly Cabinet[]): CabbageDocument {
+  const byId = new Map(cabinets.map((cabinet) => [cabinet.id, cabinet]));
+  return { ...document, cabinets: document.cabinets.map((cabinet) => byId.get(cabinet.id) ?? cabinet) };
+}
+
+/** Applies a change to some cabinets, by id. Cabinets the change leaves alone stay the very same objects. */
+export function updateCabinets(
+  document: CabbageDocument,
+  ids: ReadonlySet<string>,
+  change: (cabinet: Cabinet) => Cabinet,
+): CabbageDocument {
+  let changed = false;
+  const cabinets = document.cabinets.map((cabinet) => {
+    if (!ids.has(cabinet.id)) return cabinet;
+    const next = change(cabinet);
+    if (next !== cabinet) changed = true;
+    return next;
+  });
+  return changed ? { ...document, cabinets } : document;
 }
 
 export function replaceBoard(document: CabbageDocument, board: Board): CabbageDocument {
@@ -135,7 +185,8 @@ function isFaceIndex(value: unknown): value is FaceIndex {
 function parseBoard(value: unknown, materialIds: ReadonlySet<string>): Board | null {
   if (!value || typeof value !== 'object') return null;
   const raw = value as Record<string, unknown>;
-  if (typeof raw.id !== 'string' || typeof raw.name !== 'string') return null;
+  // A slash in an id marks a board that belongs to a cabinet, which is never saved on its own.
+  if (typeof raw.id !== 'string' || raw.id.includes('/') || typeof raw.name !== 'string') return null;
   if (!isLengthTriple(raw.min, false) || !isLengthTriple(raw.size, true)) return null;
   if (!isAxis(raw.thicknessAxis)) return null;
   // Boards saved before materials existed, or naming one that is gone, are plain plywood.
@@ -168,7 +219,8 @@ function parseGuide(value: unknown): Guide | null {
 export function parseDocument(value: unknown): CabbageDocument | null {
   if (!value || typeof value !== 'object') return null;
   const raw = value as Record<string, unknown>;
-  if ((raw.version !== 1 && raw.version !== DOCUMENT_VERSION) || !Array.isArray(raw.boards)) return null;
+  if (raw.version !== DOCUMENT_VERSION && !OLDER_VERSIONS.includes(raw.version)) return null;
+  if (!Array.isArray(raw.boards)) return null;
 
   const materials: Material[] = [];
   const materialIds = new Set(BUILT_IN_MATERIALS.map((material) => material.id));
@@ -187,7 +239,14 @@ export function parseDocument(value: unknown): CabbageDocument | null {
     seen.add(board.id);
     boards.push(board);
   }
-  // Models saved before guides existed simply have none.
+  // Models saved before cabinets existed simply have none. The same goes for guides.
+  const cabinets: Cabinet[] = [];
+  for (const entry of Array.isArray(raw.cabinets) ? raw.cabinets : []) {
+    const cabinet = parseCabinet(entry, materialIds, DEFAULT_MATERIAL_ID);
+    if (!cabinet || seen.has(cabinet.id)) return null;
+    seen.add(cabinet.id);
+    cabinets.push(cabinet);
+  }
   const guides: Guide[] = [];
   for (const entry of Array.isArray(raw.guides) ? raw.guides : []) {
     const guide = parseGuide(entry);
@@ -196,7 +255,7 @@ export function parseDocument(value: unknown): CabbageDocument | null {
     guides.push(guide);
   }
   const name = cleanProjectName(typeof raw.name === 'string' ? raw.name : '');
-  return { version: DOCUMENT_VERSION, name, boards, guides, materials };
+  return { version: DOCUMENT_VERSION, name, boards, cabinets, guides, materials };
 }
 
 /** Marks a saved file as a Cabbage project, so opening the wrong kind of file can be told apart. */
