@@ -1,5 +1,6 @@
 import type { Editor, ToolId } from '../core/editor';
 import { BoardTool } from './board-tool';
+import { CabinetTool } from './cabinet-tool';
 import { MoveTool } from './move-tool';
 import { PullTool } from './pull-tool';
 import { RotateTool } from './rotate-tool';
@@ -18,6 +19,7 @@ export interface KeyInput {
 const TOOL_KEYS: Record<string, ToolId> = {
   ' ': 'select',
   b: 'board',
+  c: 'cabinet',
   p: 'pull',
   m: 'move',
   r: 'rotate',
@@ -45,6 +47,7 @@ export class ToolManager {
     this.tools = {
       select: new SelectTool(editor),
       board: new BoardTool(editor),
+      cabinet: new CabinetTool(editor),
       pull: new PullTool(editor),
       move: new MoveTool(editor),
       rotate: new RotateTool(editor),
@@ -53,6 +56,8 @@ export class ToolManager {
     const state = editor.getState();
     this.activeId = state.tool;
     let units = state.units;
+    let stock = state.stock;
+    let cabinetKind = state.cabinetKind;
     this.active()?.activate();
 
     editor.subscribe(() => {
@@ -64,9 +69,13 @@ export class ToolManager {
         this.active()?.activate();
         this.changed();
       }
-      if (next.units !== units) {
+      // What a tool is about to make depends on these, so it describes its step again when they change.
+      if (next.units !== units || next.stock !== stock || next.cabinetKind !== cabinetKind) {
         units = next.units;
+        stock = next.stock;
+        cabinetKind = next.cabinetKind;
         this.active()?.refresh();
+        this.changed();
       }
     });
   }
@@ -143,8 +152,8 @@ export class ToolManager {
       }
       if (lower === 'a') {
         editor.setTool('select');
-        const { boards, guides } = editor.getState().document;
-        editor.setSelection([...boards, ...guides].map((item) => item.id));
+        const { boards, cabinets, guides } = editor.getState().document;
+        editor.setSelection([...boards, ...cabinets, ...guides].map((item) => item.id));
         return true;
       }
       return false;

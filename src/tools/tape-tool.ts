@@ -1,4 +1,11 @@
-import { addGuides, createGuide, replaceGuide, type CabbageDocument, type Guide } from '../core/document';
+import {
+  addGuides,
+  createGuide,
+  modelBoards,
+  replaceGuide,
+  type CabbageDocument,
+  type Guide,
+} from '../core/document';
 import type { Editor } from '../core/editor';
 import { parseLength } from '../core/parse-length';
 import { subtractVec, vecLength } from '../core/transform';
@@ -82,7 +89,7 @@ export class TapeTool implements Tool {
     if (this.measuring) {
       this.track(this.measuring, pointer);
     } else {
-      this.hover = findSnap(document.boards, pointer.view, undefined, document.guides);
+      this.hover = findSnap(modelBoards(document), pointer.view, undefined, document.guides);
       this.marker = markerFor(this.hover);
     }
     this.report();
@@ -213,7 +220,7 @@ export class TapeTool implements Tool {
   private trackMeasure(measuring: Measuring, pointer: ToolPointer): void {
     const { document, units } = this.editor.getState();
     const { start } = measuring;
-    const snap = findSnap(document.boards, pointer.view, undefined, document.guides);
+    const snap = findSnap(modelBoards(document), pointer.view, undefined, document.guides);
     if (snap && isDefinite(snap)) {
       measuring.end = snap.point;
       this.marker = markerFor(snap);
@@ -245,7 +252,7 @@ export class TapeTool implements Tool {
 
     let best: { axis: Axis; point: Vec3L; snap: Snap; pixels: number } | null = null;
     for (const axis of directions) {
-      const snap = findSnap(document.boards, view, { kind: 'line', axis, through: start }, document.guides);
+      const snap = findSnap(modelBoards(document), view, { kind: 'line', axis, through: start }, document.guides);
       if (!snap) continue;
       const free = snap.kind === 'free' || (onLine(snap) && snap.edgeAxis === axis);
       const point = free ? roundAlong(units, pointer, snap.point, start, axis) : snap.point;

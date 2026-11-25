@@ -10,7 +10,6 @@ import {
   type CabbageDocument,
 } from './document';
 import { Editor, type EditorStorage } from './editor';
-import { createSampleCabinet } from './sample-cabinet';
 import { pullBoard, rotateBoardQuarter } from './transform';
 import { DEFAULT_UNIT_SETTINGS, inchFraction, mm } from './units';
 import type { Axis, Vec3L } from './vec';
@@ -171,22 +170,6 @@ describe('the cut list', () => {
     ]);
   });
 
-  it('lists the sample cabinet', () => {
-    const groups = buildCutList(documentOf(createSampleCabinet()));
-    const lines = groups.flatMap((group) =>
-      group.parts.map((part) => `${part.quantity} ${part.names.join('/')} ${describeBanding(part)}`.trim()),
-    );
-    expect(lines).toEqual([
-      '2 Side 1 length edge',
-      '1 Bottom 1 length edge',
-      '1 Shelf 1 length edge',
-      '1 Stretcher 1 length edge',
-      // The toe kick and the rear stretcher are the same size, so they are one line.
-      '2 Toe kick/Stretcher',
-      '1 Back',
-    ]);
-  });
-
   it('writes a spreadsheet file with sizes as written and as plain numbers', () => {
     const csv = cutListCsv(buildCutList(documentOf(bookcase())), DEFAULT_UNIT_SETTINGS);
     const rows = csv.trimEnd().split('\r\n');
@@ -234,7 +217,7 @@ describe('saved projects', () => {
       boards: [{ id: 'a', name: 'Board 1', min: [0, 0, 0], size: [inch(24), inch(12), SHEET], thicknessAxis: 2 }],
     };
     const document = parseDocument(old)!;
-    expect(document).toMatchObject({ version: 2, name: 'Untitled', guides: [], materials: [] });
+    expect(document).toMatchObject({ version: 3, name: 'Untitled', cabinets: [], guides: [], materials: [] });
     expect(document.boards[0]).toMatchObject({ materialId: 'plywood' });
     expect(buildCutList(document)[0]!.material.name).toBe('Plywood');
   });
@@ -246,7 +229,7 @@ describe('saved projects', () => {
       guides: [{ id: 'g1', axis: 2, through: [inch(4), 0, 0] }],
     });
     const text = serializeDocument(document);
-    expect(JSON.parse(text)).toMatchObject({ app: 'cabbage', version: 2, name: 'Hall bookcase' });
+    expect(JSON.parse(text)).toMatchObject({ app: 'cabbage', version: 3, name: 'Hall bookcase' });
     expect(deserializeDocument(text)).toEqual(document);
   });
 

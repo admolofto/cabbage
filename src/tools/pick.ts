@@ -1,5 +1,7 @@
-import type { Board } from '../core/board';
+import { ownerId } from '../core/cabinet';
+import { modelBoards } from '../core/document';
 import type { Editor } from '../core/editor';
+import { pickedCount, pickedIn, type Picked } from '../core/picked';
 import { firstSurfaceHit, type Snap } from '../inference/inference';
 import type { ToolPointer } from './tool';
 
@@ -13,27 +15,29 @@ export function isDefinite(snap: Snap): boolean {
   return snap.kind !== 'face' && snap.kind !== 'floor' && snap.kind !== 'free';
 }
 
-export function selectedBoards(editor: Editor): Board[] {
+/** The selected boards and cabinets. */
+export function selectedPicked(editor: Editor): Picked {
   const { document, selection } = editor.getState();
-  return document.boards.filter((board) => selection.has(board.id));
+  return pickedIn(document, selection);
+}
+
+/** What a click on a board selects: the board itself, or the cabinet it is part of. */
+export function ownerUnder(editor: Editor, pointer: ToolPointer, snap?: Snap | null): string | null {
+  const boards = modelBoards(editor.getState().document);
+  const id = firstSurfaceHit(boards, pointer.view.ray)?.board.id ?? snap?.boardId;
+  return id === undefined ? null : ownerId(id);
 }
 
 /**
- * The boards an editing tool should act on when it is clicked: the selection
- * if there is one, otherwise the board under the cursor, which then becomes
- * the selection.
+ * The boards and cabinets an editing tool should act on when it is clicked:
+ * the selection if there is one, otherwise whatever is under the cursor,
+ * which then becomes the selection.
  */
-export function boardsToEdit(editor: Editor, pointer: ToolPointer, snap: Snap | null): Board[] {
-  const selected = selectedBoards(editor);
-  if (selected.length > 0) return selected;
-  const { boards } = editor.getState().document;
-  const id = firstSurfaceHit(boards, pointer.view.ray)?.board.id ?? snap?.boardId;
-  const board = boards.find((candidate) => candidate.id === id);
-  if (!board) return [];
-  editor.setSelection([board.id]);
-  return [board];
-}
-
-export function countLabel(verb: string, count: number): string {
-  return count === 1 ? `${verb} board` : `${verb} ${count} boards`;
+export function pickToEdit(editor: Editor, pointer: ToolPointer, snap: Snap | null): Picked {
+  const selected = selectedPicked(editor);
+  if (pickedCount(selected) > 0) return selected;
+  const owner = ownerUnder(editor, pointer, snap);
+  const picked = pickedIn(editor.getState().document, new Set(owner === null ? [] : [owner]));
+  if (pickedCount(picked) > 0) editor.setSelection([owner!]);
+  return picked;
 }

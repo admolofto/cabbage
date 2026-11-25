@@ -26,6 +26,7 @@ import {
   type Ray,
 } from 'three';
 import type { Board, Box, FaceIndex } from '../core/board';
+import { ownerId } from '../core/cabinet';
 import { findMaterial, type Material as BoardMaterial } from '../core/materials';
 import { toMm } from '../core/units';
 import type { Vec3L } from '../core/vec';
@@ -293,7 +294,8 @@ export class ViewportScene {
 
     for (const board of boards) {
       const view = this.views.get(board.id)!;
-      const { id } = board;
+      // A board in a cabinet is selected and hovered along with its cabinet.
+      const id = ownerId(board.id);
       const look: BoardLook = selection.has(id) ? 'selected' : id === hovered ? 'hovered' : 'plain';
       const selected = look === 'selected';
       const color = selected ? COLORS.boardSelected : findMaterial(materials, board.materialId).color;

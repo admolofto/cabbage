@@ -1,11 +1,14 @@
 import { boxCorners } from '../core/board';
+import { ownerId } from '../core/cabinet';
+import { modelBoards } from '../core/document';
 import type { Editor } from '../core/editor';
-import { firstSurfaceHit, guideUnderCursor, toMillimeters } from '../inference/inference';
+import { guideUnderCursor, toMillimeters } from '../inference/inference';
+import { ownerUnder } from './pick';
 import { dragged } from './steps';
 import { NO_PREVIEW, type ScreenRect, type Tool, type ToolPointer, type ToolPreview } from './tool';
 
 const HINT =
-  'Click a board or guide to select it. Shift-click adds or removes. Drag a box to select several. Delete removes them.';
+  'Click a board, cabinet, or guide to select it. Shift-click adds or removes. Drag a box to select several. Delete removes them.';
 
 interface Press {
   x: number;
@@ -17,9 +20,10 @@ interface Press {
 }
 
 /**
- * Picks boards and guides. Click selects one, Shift-click adds or removes, and
- * a click on nothing clears. Dragging draws a box: to the right it selects
- * boards that are entirely inside, to the left anything it touches.
+ * Picks boards, cabinets, and guides. Click selects one, Shift-click adds or
+ * removes, and a click on nothing clears. Dragging draws a box: to the right
+ * it selects what is entirely inside, to the left anything it touches. A
+ * cabinet is picked as a whole, by any of its boards.
  */
 export class SelectTool implements Tool {
   readonly id = 'select' as const;
@@ -108,15 +112,14 @@ export class SelectTool implements Tool {
     return rect ? { ...NO_PREVIEW, rect } : NO_PREVIEW;
   }
 
-  /** The guide or board under the cursor. A guide is thin, so it gets first claim. */
+  /** The guide, board, or cabinet under the cursor. A guide is thin, so it gets first claim. */
   private itemUnder(pointer: ToolPointer): string | null {
-    const { boards, guides } = this.editor.getState().document;
-    const guide = guideUnderCursor(guides, pointer.view);
+    const guide = guideUnderCursor(this.editor.getState().document.guides, pointer.view);
     if (guide) return guide.id;
-    return firstSurfaceHit(boards, pointer.view.ray)?.board.id ?? null;
+    return ownerUnder(this.editor, pointer);
   }
 
-  /** The boards a dragged box selects, added to what was selected before when Shift is held. */
+  /** What a dragged box selects, added to what was selected before when Shift is held. */
   private boxed(press: Press, pointer: ToolPointer): string[] {
     const rect = press.rect!;
     const left = Math.min(rect.x0, rect.x1);
@@ -124,8 +127,12 @@ export class SelectTool implements Tool {
     const top = Math.min(rect.y0, rect.y1);
     const bottom = Math.max(rect.y0, rect.y1);
     const ids = new Set(press.shiftKey ? press.before : []);
+    // A cabinet is inside the box when all of its boards are, and touched by it when any of them is.
+    const inside = new Map<string, boolean>();
+    const touching = new Set<string>();
 
-    for (const board of this.editor.getState().document.boards) {
+    for (const board of modelBoards(this.editor.getState().document)) {
+      const owner = ownerId(board.id);
       let minX = Infinity;
       let maxX = -Infinity;
       let minY = Infinity;
@@ -142,11 +149,16 @@ export class SelectTool implements Tool {
         minY = Math.min(minY, at.y);
         maxY = Math.max(maxY, at.y);
       }
-      if (!visible) continue;
-      const inside = minX >= left && maxX <= right && minY >= top && maxY <= bottom;
-      const touching = maxX >= left && minX <= right && maxY >= top && minY <= bottom;
-      if (rect.crossing ? touching : inside) ids.add(board.id);
+      if (!visible) {
+        inside.set(owner, false);
+        continue;
+      }
+      const within = minX >= left && maxX <= right && minY >= top && maxY <= bottom;
+      inside.set(owner, within && (inside.get(owner) ?? true));
+      if (maxX >= left && minX <= right && maxY >= top && minY <= bottom) touching.add(owner);
     }
+    if (rect.crossing) for (const owner of touching) ids.add(owner);
+    else for (const [owner, within] of inside) if (within) ids.add(owner);
     return [...ids];
   }
 }

@@ -1,22 +1,32 @@
-import type { Board } from '../core/board';
-import { replaceBoards, type CabbageDocument } from '../core/document';
+import { ownerId } from '../core/cabinet';
+import { modelBoards, type CabbageDocument } from '../core/document';
 import type { Editor } from '../core/editor';
-import { quarterTurnsBetween, rotateBoardQuarter, rotatePointQuarter } from '../core/transform';
+import {
+  canTurn,
+  pickedCount,
+  pickedLabel,
+  pickedSolids,
+  replacePicked,
+  turnPicked,
+  type Picked,
+} from '../core/picked';
+import { quarterTurnsBetween, rotatePointQuarter } from '../core/transform';
 import { AXIS_NAMES, vecEquals, type Axis, type Vec3L } from '../core/vec';
 import { findSnap } from '../inference/inference';
-import { boardsToEdit, countLabel } from './pick';
+import { pickToEdit, selectedPicked } from './pick';
 import { NO_PREVIEW, markerFor, type SnapMarker, type Tool, type ToolPointer, type ToolPreview } from './tool';
 
 /**
- * Turns boards in quarter turns about an axis: click the point to turn about,
- * click a point to grab, then move around to the new direction and click.
- * Typing 90, 180, or -90 after the first click turns straight away.
+ * Turns boards and cabinets in quarter turns about an axis: click the point
+ * to turn about, click a point to grab, then move around to the new direction
+ * and click. Typing 90, 180, or -90 after the first click turns straight away.
  *
  * Boards stay square to the axes for now, so only quarter turns are offered.
+ * A cabinet stays upright: it turns about the up axis and no other.
  */
 
 interface Turning {
-  boards: readonly Board[];
+  picked: Picked;
   pivot: Vec3L;
   /** The axis suggested by where the pivot was clicked. */
   autoAxis: Axis;
@@ -30,7 +40,7 @@ interface Turning {
 }
 
 interface LastTurn {
-  boards: readonly Board[];
+  picked: Picked;
   pivot: Vec3L;
   axis: Axis;
   before: CabbageDocument;
@@ -38,8 +48,9 @@ interface LastTurn {
 }
 
 const HINTS = {
-  idle: 'Click the point to turn about. Select boards first to turn several together.',
+  idle: 'Click the point to turn about. Select several things first to turn them together.',
   grab: 'Click a point to grab, or type 90 and press Enter. Arrow keys pick the axis.',
+  grabUpright: 'Click a point to grab, or type 90 and press Enter. A cabinet stays upright as it turns.',
   aim: 'Move around to turn in quarter turns, then click.',
 } as const;
 
@@ -90,14 +101,14 @@ export class RotateTool implements Tool {
     const turning = this.turning;
     if (!turning) {
       const { document } = this.editor.getState();
-      const snap = findSnap(document.boards, pointer.view, undefined, document.guides);
+      const snap = findSnap(modelBoards(document), pointer.view, undefined, document.guides);
       if (!snap) return;
-      const boards = boardsToEdit(this.editor, pointer, snap);
-      if (boards.length === 0) return;
+      const picked = pickToEdit(this.editor, pointer, snap);
+      if (pickedCount(picked) === 0) return;
       this.last = null;
       this.editor.setHovered(null);
       this.turning = {
-        boards,
+        picked,
         pivot: snap.point,
         // Clicking a face turns about the line square to it. Anything else turns flat, about Z.
         autoAxis: snap.kind === 'face' && snap.face ? snap.face.axis : 2,
@@ -148,9 +159,8 @@ export class RotateTool implements Tool {
     } else {
       const last = this.correctable();
       if (!last) return false;
-      const { boards, pivot, axis, before } = last;
-      const turned = boards.map((board) => rotateBoardQuarter(board, pivot, axis, turns));
-      this.editor.amendDocument(replaceBoards(before, turned));
+      const { picked, pivot, axis, before } = last;
+      this.editor.amendDocument(replacePicked(before, turnPicked(picked, pivot, axis, turns)));
       this.last = { ...last, after: this.editor.getState().document };
     }
     this.report();
@@ -176,12 +186,12 @@ export class RotateTool implements Tool {
   preview(): ToolPreview {
     const turning = this.turning;
     if (!turning) return this.marker ? { ...NO_PREVIEW, marker: this.marker } : NO_PREVIEW;
-    const { pivot, grab, cursor, turns, boards } = turning;
+    const { pivot, grab, cursor, turns, picked } = turning;
     const axis = this.axisOf(turning);
     if (!grab) {
       return { ...NO_PREVIEW, marker: this.marker, lines: [{ from: pivot, to: cursor, axis: null }] };
     }
-    const turned = boards.map((board) => rotateBoardQuarter(board, pivot, axis, turns));
+    const turned = pickedSolids(turnPicked(picked, pivot, axis, turns));
     const landed = rotatePointQuarter(grab, pivot, axis, turns);
     return {
       ...NO_PREVIEW,
@@ -198,15 +208,17 @@ export class RotateTool implements Tool {
   // Steps
 
   private axisOf(turning: Turning): Axis {
-    return turning.arrowAxis ?? turning.autoAxis;
+    const axis = turning.arrowAxis ?? turning.autoAxis;
+    // A cabinet cannot be laid on its side, so anything picked along with one turns upright too.
+    return canTurn(turning.picked, axis) ? axis : 2;
   }
 
   private hoverAt(pointer: ToolPointer): void {
-    const { document, selection } = this.editor.getState();
-    const snap = findSnap(document.boards, pointer.view, undefined, document.guides);
+    const { document } = this.editor.getState();
+    const snap = findSnap(modelBoards(document), pointer.view, undefined, document.guides);
     this.marker = markerFor(snap);
-    const selected = document.boards.some((board) => selection.has(board.id));
-    this.editor.setHovered(selected ? null : (snap?.boardId ?? null));
+    const selected = pickedCount(selectedPicked(this.editor)) > 0;
+    this.editor.setHovered(selected || !snap?.boardId ? null : ownerId(snap.boardId));
   }
 
   private track(turning: Turning, pointer: ToolPointer): void {
@@ -214,8 +226,9 @@ export class RotateTool implements Tool {
     const axis = this.axisOf(turning);
     const { pivot, grab } = turning;
     // Before grabbing, the boards themselves can be snapped to. While turning, they are left out.
-    const ids = new Set(turning.boards.map((board) => board.id));
-    const boards = grab ? document.boards.filter((board) => !ids.has(board.id)) : document.boards;
+    const ids = new Set(pickedSolids(turning.picked).map((board) => board.id));
+    const solids = modelBoards(document);
+    const boards = grab ? solids.filter((board) => !ids.has(board.id)) : solids;
     const snap = findSnap(boards, pointer.view, { kind: 'plane', axis, value: pivot[axis] }, document.guides);
     if (!snap) return;
     turning.cursor = snap.point;
@@ -229,10 +242,10 @@ export class RotateTool implements Tool {
     if (turns % 4 === 0) return;
     const axis = this.axisOf(turning);
     const before = this.editor.getState().document;
-    const turned = turning.boards.map((board) => rotateBoardQuarter(board, turning.pivot, axis, turns));
-    this.editor.commitDocument(replaceBoards(before, turned), countLabel('Turn', turning.boards.length));
+    const turned = turnPicked(turning.picked, turning.pivot, axis, turns);
+    this.editor.commitDocument(replacePicked(before, turned), pickedLabel('Turn', turning.picked));
     this.last = {
-      boards: turning.boards,
+      picked: turning.picked,
       pivot: turning.pivot,
       axis,
       before,
@@ -257,7 +270,8 @@ export class RotateTool implements Tool {
     const editor = this.editor;
     if (editor.getState().tool !== this.id) return;
     const turning = this.turning;
-    editor.setHint(!turning ? HINTS.idle : turning.grab ? HINTS.aim : HINTS.grab);
+    const upright = turning !== null && turning.picked.cabinets.length > 0;
+    editor.setHint(!turning ? HINTS.idle : turning.grab ? HINTS.aim : upright ? HINTS.grabUpright : HINTS.grab);
     if (turning) {
       editor.setMeasurement(`Angle about ${AXIS_NAMES[this.axisOf(turning)]}`, turning.grab ? degrees(turning.turns) : '');
     } else {

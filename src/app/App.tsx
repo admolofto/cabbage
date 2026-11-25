@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { boardDimensions } from '../core/board';
+import { usualSize } from '../core/cabinet';
 import type { Editor, EditorState, ToolId } from '../core/editor';
-import { createSampleCabinet } from '../core/sample-cabinet';
 import {
   IMPERIAL_PRECISIONS,
   METRIC_PRECISIONS,
@@ -15,6 +15,7 @@ import {
   type UnitSettings,
 } from '../core/units';
 import type { ToolManager } from '../tools/tool-manager';
+import { CabinetPanel } from './CabinetPanel';
 import { CutListPanel } from './CutListPanel';
 import type { ViewName } from '../viewport/camera-math';
 import type { FloorPoint } from '../viewport/engine';
@@ -24,6 +25,7 @@ import { ProjectBar, ReplaceDialog, useProject } from './ProjectBar';
 import { StockPicker } from './StockPicker';
 import {
   BoardIcon,
+  CabinetIcon,
   CloseIcon,
   FitIcon,
   HelpIcon,
@@ -41,7 +43,7 @@ import {
 
 const HELP_SEEN_KEY = 'cabbage.help-seen';
 /** Changes when the controls change enough that the card is worth showing once more. */
-const HELP_VERSION = 'cut-list';
+const HELP_VERSION = 'cabinets';
 
 const VIEWS: readonly { view: ViewName; label: string }[] = [
   { view: 'front', label: 'Front' },
@@ -53,6 +55,7 @@ const VIEWS: readonly { view: ViewName; label: string }[] = [
 const TOOLS: readonly { id: ToolId; label: string; key: string; Icon: () => React.JSX.Element }[] = [
   { id: 'select', label: 'Select', key: 'Space', Icon: SelectIcon },
   { id: 'board', label: 'Board', key: 'B', Icon: BoardIcon },
+  { id: 'cabinet', label: 'Cabinet', key: 'C', Icon: CabinetIcon },
   { id: 'pull', label: 'Pull', key: 'P', Icon: PullIcon },
   { id: 'move', label: 'Move', key: 'M', Icon: MoveIcon },
   { id: 'rotate', label: 'Rotate', key: 'R', Icon: RotateIcon },
@@ -96,6 +99,11 @@ function measurementFor(state: EditorState): { label: string; value: string } {
       const sizes = [length, width, thickness].map((size) => formatLength(size, units));
       return { label: board.name, value: sizes.join(' x ') };
     }
+    const cabinet = document.cabinets.find((candidate) => selection.has(candidate.id));
+    if (cabinet) {
+      const sizes = [cabinet.width, cabinet.height, cabinet.depth].map((size) => formatLength(size, units));
+      return { label: cabinet.name, value: sizes.join(' x ') };
+    }
   }
   if (selection.size > 1) return { label: 'Selected', value: `${selection.size} items` };
   if (selection.size === 1) return { label: 'Selected', value: 'Guide' };
@@ -122,6 +130,10 @@ export function App({ editor, tools }: AppProps) {
     () => model.boards.filter((board) => selection.has(board.id)),
     [model.boards, selection],
   );
+  const selectedCabinets = useMemo(
+    () => model.cabinets.filter((cabinet) => selection.has(cabinet.id)),
+    [model.cabinets, selection],
+  );
 
   const closeHelp = useCallback(() => {
     setHelpOpen(false);
@@ -133,7 +145,9 @@ export function App({ editor, tools }: AppProps) {
   }, []);
 
   const addSampleCabinet = useCallback(() => {
-    editor.addBoards(createSampleCabinet(), 'Add sample cabinet');
+    // A base cabinet with its front left corner at the origin.
+    const { depth } = usualSize('base', editor.getState().units.system);
+    editor.placeCabinet([0, depth, 0], undefined, 'base');
     viewportRef.current?.fit();
   }, [editor]);
 
@@ -199,7 +213,7 @@ export function App({ editor, tools }: AppProps) {
           <div className="brand">
             <LogoMark />
             <span className="brand-name">Cabbage</span>
-            <span className="chip">Milestone 4 preview</span>
+            <span className="chip">Milestone 5 preview</span>
           </div>
           <ProjectBar editor={editor} state={state} project={project} />
         </div>
@@ -300,22 +314,32 @@ export function App({ editor, tools }: AppProps) {
             ))}
           </div>
 
-          {state.document.boards.length === 0 && !helpOpen && SELECTION_TOOLS.has(tool) && (
+          {model.boards.length === 0 && model.cabinets.length === 0 && !helpOpen && SELECTION_TOOLS.has(tool) && (
             <div className="empty-card">
               <p>
-                <strong>Nothing here yet.</strong> Press <kbd>B</kbd> and click two corners on the floor to draw a
-                board.
+                <strong>Nothing here yet.</strong> Press <kbd>C</kbd> and click to place a cabinet, or{' '}
+                <kbd>B</kbd> and click two corners on the floor to draw a board.
               </p>
               <button type="button" className="text-button" onClick={addSampleCabinet}>
-                Add a sample cabinet
+                Add a base cabinet
               </button>
             </div>
           )}
 
-          <StockPicker editor={editor} stock={state.stock} materials={model.materials} units={units} />
+          <StockPicker
+            editor={editor}
+            stock={state.stock}
+            materials={model.materials}
+            units={units}
+            cabinetKind={tool === 'cabinet' ? state.cabinetKind : null}
+          />
 
-          {selectedBoards.length > 0 && !helpOpen && (
+          {/* One kind of thing at a time gets a panel. A mixed selection can still be moved, turned, and deleted. */}
+          {selectedBoards.length > 0 && selectedCabinets.length === 0 && !helpOpen && (
             <Inspector editor={editor} boards={selectedBoards} materials={model.materials} units={units} />
+          )}
+          {selectedCabinets.length > 0 && selectedBoards.length === 0 && !helpOpen && (
+            <CabinetPanel editor={editor} cabinets={selectedCabinets} materials={model.materials} units={units} />
           )}
 
           {helpOpen && <HelpCard onClose={closeHelp} onAddSample={addSampleCabinet} />}
@@ -499,17 +523,28 @@ function HelpCard({ onClose, onAddSample }: { onClose: () => void; onAddSample: 
       </p>
 
       <h3>
+        Cabinet <kbd>C</kbd>
+      </h3>
+      <p>
+        Pick base, wall, or tall at the top left, then click to place one. It is held by a back corner, so
+        clicking the back corner of another cabinet sets it alongside. Type a width, or{' '}
+        <kbd>30, 34 1/2, 24</kbd> for width, height, and depth. Select a cabinet to change its size, toe kick,
+        shelves, and material, or to unlock it into plain boards.
+      </p>
+
+      <h3>
         Pull <kbd>P</kbd>
       </h3>
       <p>
-        Click a face, move, click. Type a distance, or <kbd>=30</kbd> to set the full size.
+        Click a face, move, click. Type a distance, or <kbd>=30</kbd> to set the full size. On a cabinet, an
+        outside face resizes the whole cabinet.
       </p>
 
       <h3>
         Move <kbd>M</kbd>
       </h3>
       <p>
-        Click a point on a board, then click where that point goes. <kbd>Ctrl</kbd> makes a copy. After a
+        Click a point on a board or cabinet, then click where that point goes. <kbd>Ctrl</kbd> makes a copy. After a
         copy, type <kbd>3x</kbd> for three in a row or <kbd>/3</kbd> to space three evenly.
       </p>
 
@@ -532,7 +567,7 @@ function HelpCard({ onClose, onAddSample }: { onClose: () => void; onAddSample: 
         Select <kbd>Space</kbd>
       </h3>
       <p>
-        Click a board or guide. Shift and click adds or removes. Drag a box to the right for what is inside
+        Click a board, cabinet, or guide. Shift and click adds or removes. Drag a box to the right for what is inside
         it, to the left for anything it touches. <kbd>Delete</kbd> removes the selection.
       </p>
 
@@ -577,9 +612,9 @@ function HelpCard({ onClose, onAddSample }: { onClose: () => void; onAddSample: 
       </dl>
 
       <p className="help-note">
-        Want something to snap to?{' '}
+        Want something to look at?{' '}
         <button type="button" className="text-button" onClick={onAddSample}>
-          Add a sample cabinet
+          Add a base cabinet
         </button>
       </p>
     </aside>
