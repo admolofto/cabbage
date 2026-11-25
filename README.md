@@ -19,7 +19,7 @@ The first usable version is a board modeler with a correct cut list:
 1. **Viewport.** 3D view with a floor grid, orbit, pan, zoom, and units. Done.
 2. **Draw boards.** Board tool, typed measurements, snapping, undo. Done.
 3. **Edit boards.** Pull, move and copy, rotate, guides, measuring, box select.
-   In review.
+   Done.
 4. **Cut list.** Materials, grain, edge banding, a cut list with CSV export and
    printing, and saving to a file. In review.
 
