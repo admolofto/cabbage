@@ -25,7 +25,8 @@ import {
   type Material,
   type Ray,
 } from 'three';
-import type { Board, Box } from '../core/board';
+import type { Board, Box, FaceIndex } from '../core/board';
+import { findMaterial, type Material as BoardMaterial } from '../core/materials';
 import { toMm } from '../core/units';
 import type { Vec3L } from '../core/vec';
 import { firstSurfaceHit } from '../inference/inference';
@@ -37,6 +38,8 @@ import { UP } from './camera-math';
 const COLORS = {
   board: '#ead9b4',
   boardSelected: '#cfe0f3',
+  banding: '#8f6b3e',
+  bandingSelected: '#6f9bd8',
   boardEdge: '#3d3427',
   highlight: '#1c64d1',
   preview: '#1c64d1',
@@ -155,7 +158,12 @@ interface BoardView {
   shown: Box;
   mesh: Mesh;
   outline: LineSegments;
+  /** What the faces were last painted for, so they are repainted only when it changes. */
+  painted: string;
 }
+
+/** The faces of a unit cube in the order its geometry lists them: +X, -X, +Y, -Y, +Z, -Z. */
+const CUBE_FACE_ORDER: readonly FaceIndex[] = [1, 0, 3, 2, 5, 4];
 
 type BoardLook = 'plain' | 'hovered' | 'selected';
 
@@ -172,7 +180,8 @@ export class ViewportScene {
   // own outlines so edges always draw crisply.
   private readonly cube = new BoxGeometry(1, 1, 1);
   private readonly cubeEdges = new EdgesGeometry(this.cube);
-  private readonly faceMaterials: Record<BoardLook, MeshLambertMaterial>;
+  /** Face materials by color, made as they are first needed. */
+  private readonly faceMaterials = new Map<string, MeshLambertMaterial>();
   private readonly edgeMaterials: Record<BoardLook, LineBasicMaterial>;
   private readonly model = new Group();
   private readonly views = new Map<string, BoardView>();
@@ -195,13 +204,6 @@ export class ViewportScene {
     scene.add(this.grid);
     for (const axis of this.axes) scene.add(axis.line);
 
-    const face = (color: string) =>
-      new MeshLambertMaterial({ color, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
-    this.faceMaterials = {
-      plain: face(COLORS.board),
-      hovered: face(COLORS.board),
-      selected: face(COLORS.boardSelected),
-    };
     this.edgeMaterials = {
       plain: new LineBasicMaterial({ color: COLORS.boardEdge }),
       hovered: new LineBasicMaterial({ color: COLORS.highlight }),
@@ -256,6 +258,7 @@ export class ViewportScene {
    */
   setBoards(
     boards: readonly Board[],
+    materials: readonly BoardMaterial[],
     selection: ReadonlySet<string>,
     hovered: string | null,
     overrides: ReadonlyMap<string, Box>,
@@ -275,9 +278,9 @@ export class ViewportScene {
       const shown = overrides.get(board.id) ?? board;
       let view = this.views.get(board.id);
       if (!view) {
-        const mesh = new Mesh(this.cube, this.faceMaterials.plain);
+        const mesh = new Mesh(this.cube, this.faceMaterial(COLORS.board));
         const outline = new LineSegments(this.cubeEdges, this.edgeMaterials.plain);
-        view = { shown, mesh, outline };
+        view = { shown, mesh, outline, painted: '' };
         this.views.set(board.id, view);
         this.model.add(mesh, outline);
       } else if (view.shown === shown) {
@@ -288,13 +291,35 @@ export class ViewportScene {
       fitToBox(view.outline, shown);
     }
 
-    for (const [id, view] of this.views) {
+    for (const board of boards) {
+      const view = this.views.get(board.id)!;
+      const { id } = board;
       const look: BoardLook = selection.has(id) ? 'selected' : id === hovered ? 'hovered' : 'plain';
-      view.mesh.material = this.faceMaterials[look];
+      const selected = look === 'selected';
+      const color = selected ? COLORS.boardSelected : findMaterial(materials, board.materialId).color;
+      const banding = board.banding ?? [];
+      const painted = `${color}|${selected}|${banding.join('')}`;
+      if (painted !== view.painted) {
+        view.painted = painted;
+        const face = this.faceMaterial(color);
+        // Banded edges are painted darker, so it shows at a glance which ones they are.
+        const band = this.faceMaterial(selected ? COLORS.bandingSelected : COLORS.banding);
+        view.mesh.material =
+          banding.length === 0 ? face : CUBE_FACE_ORDER.map((index) => (banding.includes(index) ? band : face));
+      }
       view.outline.material = this.edgeMaterials[look];
       // Highlighted outlines draw last so a neighbor's plain edge never covers them.
       view.outline.renderOrder = look === 'plain' ? 0 : 3;
     }
+  }
+
+  private faceMaterial(color: string): MeshLambertMaterial {
+    let material = this.faceMaterials.get(color);
+    if (!material) {
+      material = new MeshLambertMaterial({ color, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+      this.faceMaterials.set(color, material);
+    }
+    return material;
   }
 
   /** Draws what the active tool is in the middle of making. */
@@ -398,7 +423,7 @@ export class ViewportScene {
         }
       }
     });
-    for (const material of [...Object.values(this.faceMaterials), ...Object.values(this.edgeMaterials)]) {
+    for (const material of [...this.faceMaterials.values(), ...Object.values(this.edgeMaterials)]) {
       materials.add(material);
     }
     geometries.add(this.cube).add(this.cubeEdges);

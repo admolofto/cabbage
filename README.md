@@ -19,8 +19,9 @@ The first usable version is a board modeler with a correct cut list:
 1. **Viewport.** 3D view with a floor grid, orbit, pan, zoom, and units. Done.
 2. **Draw boards.** Board tool, typed measurements, snapping, undo. Done.
 3. **Edit boards.** Pull, move and copy, rotate, guides, measuring, box select.
-   In review.
-4. **Cut list.** Materials, grain, edge banding, cut list export, save and open.
+   Done.
+4. **Cut list.** Materials, grain, edge banding, a cut list with CSV export and
+   printing, and saving to a file. In review.
 
 Later phases add parametric cabinets (frameless and face frame), sheet layout
 for track saw cutting, cost estimates, rooms, shop drawings, and exchange with
@@ -43,9 +44,10 @@ To try a build without a server, run `npm run build:standalone`. It writes
 The code is layered so the parts that matter most can be tested without a
 browser:
 
-- `src/core` holds the model: exact units, boards, guides, the document, undo
-  history, typed measurement parsing, the math for moving, pulling, and turning
-  boards, and the editor that ties them together.
+- `src/core` holds the model: exact units, boards, materials, guides, the
+  document, undo history, typed measurement parsing, the math for moving,
+  pulling, and turning boards, the cut list, and the editor that ties them
+  together.
 - `src/inference` decides what the cursor snaps to: corners, midpoints, edges,
   guides, faces, and the floor, and notices when the cursor follows an axis.
 - `src/tools` holds the tools: Select, Board, Pull, Move, Rotate, and Tape. Each
@@ -53,10 +55,11 @@ browser:
   touches the screen.
 - `src/viewport` holds the 3D view. Camera math lives in `camera-math.ts`, apart
   from the code that listens to the mouse and touch screen.
-- `src/app` holds the panels and controls around the view.
+- `src/app` holds the panels and controls around the view, and the reading and
+  writing of project files.
 
-The model is saved in the browser's own storage as you work. Saving to a file
-comes with milestone 4.
+The model is kept in the browser's own storage as you work, and can be saved to
+a `.cabbage` file, which is plain JSON.
 
 Notes on how the controls should feel, and why, are kept in
 [docs/feel-notes.md](docs/feel-notes.md).

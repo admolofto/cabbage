@@ -1,5 +1,14 @@
-import type { Board, Box } from './board';
-import { boxFromCorners, boxMax } from './board';
+import {
+  boxFromCorners,
+  boxMax,
+  faceAxis,
+  faceIndex,
+  faceSign,
+  tidyBoard,
+  type Board,
+  type Box,
+  type FaceIndex,
+} from './board';
 import type { Length } from './units';
 import { addVec, withAxis, type Axis, type Vec3L } from './vec';
 
@@ -57,7 +66,8 @@ export function faceCorners(box: Box, axis: Axis, sign: 1 | -1): Vec3L[] {
 export function pullBoard(board: Board, axis: Axis, sign: 1 | -1, distance: Length, minimum: Length): Board {
   const size = Math.max(board.size[axis] + distance, minimum);
   const min = sign > 0 ? board.min[axis] : board.min[axis] + board.size[axis] - size;
-  return { ...board, min: withAxis(board.min, axis, min), size: withAxis(board.size, axis, size) };
+  // Pulled far enough, a board is thinnest another way, and its thickness follows.
+  return tidyBoard({ ...board, min: withAxis(board.min, axis, min), size: withAxis(board.size, axis, size) });
 }
 
 /** The two axes a quarter turn about `axis` swaps, in right-handed order. */
@@ -82,18 +92,33 @@ export function rotatePointQuarter(point: Vec3L, pivot: Vec3L, axis: Axis, turns
   return withAxis(withAxis(point, u, pivot[u] + du), v, pivot[v] + dv);
 }
 
-/** Turns a board in quarter turns. Its thickness direction turns with it. */
+/** Turns a board in quarter turns. Its thickness direction, grain, and banded edges turn with it. */
 export function rotateBoardQuarter(board: Board, pivot: Vec3L, axis: Axis, turns: number): Board {
   const box = boxFromCorners(
     rotatePointQuarter(board.min, pivot, axis, turns),
     rotatePointQuarter(boxMax(board), pivot, axis, turns),
   );
   const [u, v] = turningAxes(axis);
-  const odd = ((turns % 2) + 2) % 2 === 1;
-  let thicknessAxis = board.thicknessAxis;
-  if (odd && thicknessAxis === u) thicknessAxis = v;
-  else if (odd && thicknessAxis === v) thicknessAxis = u;
-  return { ...board, ...box, thicknessAxis };
+  const count = ((turns % 4) + 4) % 4;
+  const odd = count % 2 === 1;
+  const turnAxis = (other: Axis): Axis => (!odd ? other : other === u ? v : other === v ? u : other);
+  // Where a face ends up: the same sums as turning a point, applied to the way the face looks.
+  const turnFace = (face: FaceIndex): FaceIndex => {
+    let faceAlong = faceAxis(face);
+    let side = faceSign(face);
+    for (let step = 0; step < count; step += 1) {
+      if (faceAlong === u) faceAlong = v;
+      else if (faceAlong === v) [faceAlong, side] = [u, side === 1 ? -1 : 1];
+    }
+    return faceIndex(faceAlong, side);
+  };
+  return tidyBoard({
+    ...board,
+    ...box,
+    thicknessAxis: turnAxis(board.thicknessAxis),
+    grain: board.grain === undefined ? undefined : turnAxis(board.grain),
+    banding: board.banding?.map(turnFace),
+  });
 }
 
 /** The angle of a direction around an axis, in quarter turns from the first turning axis. */

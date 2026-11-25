@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Board } from './board';
-import { nextBoardName, parseDocument } from './document';
-import { Editor, defaultThickness, dragStep, parseUnitSettings, roundSteps, type EditorStorage } from './editor';
+import { EMPTY_DOCUMENT, nextBoardName, parseDocument } from './document';
+import { Editor, dragStep, parseUnitSettings, roundSteps, type EditorStorage } from './editor';
 import { DEFAULT_UNIT_SETTINGS, inchFraction, mm } from './units';
 
 function memoryStorage(): EditorStorage & { data: Map<string, string> } {
@@ -10,7 +10,7 @@ function memoryStorage(): EditorStorage & { data: Map<string, string> } {
 }
 
 function board(id: string, name = 'Board 1'): Board {
-  return { id, name, min: [0, 0, 0], size: [inchFraction(24), inchFraction(12), inchFraction(0, 3, 4)], thicknessAxis: 2 };
+  return { id, name, min: [0, 0, 0], size: [inchFraction(24), inchFraction(12), inchFraction(0, 3, 4)], thicknessAxis: 2, materialId: 'plywood' };
 }
 
 describe('Editor', () => {
@@ -99,17 +99,17 @@ describe('Editor', () => {
 describe('documents', () => {
   it('numbers new boards past the highest number in use', () => {
     const boards = [board('a', 'Board 2'), board('b', 'Left side'), board('c', 'Board 7')];
-    const document = { version: 1 as const, boards, guides: [] };
+    const document = { ...EMPTY_DOCUMENT, boards };
     expect(nextBoardName(document)).toBe('Board 8');
   });
 
   it('refuses saved data that is not a document', () => {
     expect(parseDocument(null)).toBeNull();
-    expect(parseDocument({ version: 2, boards: [] })).toBeNull();
+    expect(parseDocument({ version: 3, boards: [] })).toBeNull();
     expect(parseDocument({ version: 1, boards: [{ ...board('a'), size: [1, 0, 1] }] })).toBeNull();
     expect(parseDocument({ version: 1, boards: [{ ...board('a'), min: [0.5, 0, 0] }] })).toBeNull();
     expect(parseDocument({ version: 1, boards: [board('a'), board('a')] })).toBeNull();
-    expect(parseDocument({ version: 1, boards: [board('a')] })).toEqual({ version: 1, boards: [board('a')], guides: [] });
+    expect(parseDocument({ version: 1, boards: [board('a')] })).toEqual({ ...EMPTY_DOCUMENT, boards: [board('a')] });
   });
 });
 
@@ -124,8 +124,14 @@ describe('unit settings', () => {
   });
 
   it('uses the usual sheet thickness for each system', () => {
-    expect(defaultThickness({ ...DEFAULT_UNIT_SETTINGS, system: 'imperial' })).toBe(inchFraction(0, 3, 4));
-    expect(defaultThickness({ ...DEFAULT_UNIT_SETTINGS, system: 'metric' })).toBe(mm(18));
+    const editor = new Editor();
+    expect(editor.getState().stock).toEqual({ materialId: 'plywood', thickness: inchFraction(0, 3, 4) });
+    editor.setUnits({ system: 'metric' });
+    expect(editor.getState().stock.thickness).toBe(mm(18));
+    // A thickness picked by hand that is not a usual one stays put.
+    editor.setStock({ thickness: mm(19) });
+    editor.setUnits({ system: 'imperial' });
+    expect(editor.getState().stock.thickness).toBe(mm(19));
   });
 
   it('offers round steps no finer than the display precision', () => {
