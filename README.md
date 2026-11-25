@@ -25,6 +25,28 @@ Later phases add parametric cabinets (frameless and face frame), sheet layout
 for track saw cutting, cost estimates, rooms, shop drawings, and exchange with
 Blender and SketchUp.
 
+## Development
+
+Cabbage is a static TypeScript site built with Vite, React, and Three.js. It
+needs Node 22 or newer.
+
+```sh
+npm install
+npm run dev        # start a local server
+npm run check      # type check, lint, test, and build
+```
+
+The code is layered so the parts that matter most can be tested without a
+browser:
+
+- `src/core` holds exact units and other pure model code.
+- `src/viewport` holds the 3D view. Camera math lives in `camera-math.ts`, apart
+  from the code that listens to the mouse and touch screen.
+- `src/app` holds the panels and controls around the view.
+
+Notes on how the controls should feel, and why, are kept in
+[docs/feel-notes.md](docs/feel-notes.md).
+
 ## License
 
 [MIT](LICENSE)
