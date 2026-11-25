@@ -83,6 +83,17 @@ describe('Cabinet', () => {
     expect(cabinetBox(newest())).toEqual({ min: [inch(24), 0, 0], size: [inch(24), inch(24), TOP] });
   });
 
+  it('lines up with the outside of a cabinet, not with the boards inside it', () => {
+    // The back corner of the right side is 1/4" in front of the corner of the case.
+    click([inch(24), inch(23, 3, 4), TOP]);
+    expect(newest().position).toEqual([inch(24), inch(24), 0]);
+    key('z', { command: true });
+    // The corner of the case at the floor, where no board reaches.
+    click([inch(24), inch(24), 0]);
+    expect(newest().position).toEqual([inch(24), inch(24), 0]);
+    expect(cabinets()).toHaveLength(2);
+  });
+
   it('goes to the left of a corner it would otherwise land inside', () => {
     move(backLeft);
     expect(tools.preview().marker?.kind).toBe('corner');

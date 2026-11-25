@@ -21,11 +21,19 @@ The first usable version is a board modeler with a correct cut list:
 3. **Edit boards.** Pull, move and copy, rotate, guides, measuring, box select.
    Done.
 4. **Cut list.** Materials, grain, edge banding, a cut list with CSV export and
-   printing, and saving to a file. In review.
+   printing, and saving to a file. Done.
 
-Later phases add parametric cabinets (frameless and face frame), sheet layout
-for track saw cutting, cost estimates, rooms, shop drawings, and exchange with
-Blender and SketchUp.
+The second phase is parametric cabinets, where a few sizes make all the boards:
+
+5. **First cabinets.** Place base, wall, and tall cabinets, change their sizes,
+   toe kick, shelves, and material, and unlock one into plain boards. In
+   review.
+6. **Openings.** Shelves, dividers, doors, and drawers.
+7. **Build styles.** Joinery, backs, and toe kick rules shared across cabinets.
+8. **Face frames.**
+
+Later phases add sheet layout for track saw cutting, cost estimates, rooms,
+shop drawings, and exchange with Blender and SketchUp.
 
 ## Development
 
@@ -44,15 +52,15 @@ To try a build without a server, run `npm run build:standalone`. It writes
 The code is layered so the parts that matter most can be tested without a
 browser:
 
-- `src/core` holds the model: exact units, boards, materials, guides, the
-  document, undo history, typed measurement parsing, the math for moving,
-  pulling, and turning boards, the cut list, and the editor that ties them
-  together.
+- `src/core` holds the model: exact units, boards, cabinets and the recipe
+  that turns one into boards, materials, guides, the document, undo history,
+  typed measurement parsing, the math for moving, pulling, and turning, the
+  cut list, and the editor that ties them together.
 - `src/inference` decides what the cursor snaps to: corners, midpoints, edges,
   guides, faces, and the floor, and notices when the cursor follows an axis.
-- `src/tools` holds the tools: Select, Board, Pull, Move, Rotate, and Tape. Each
-  one is a small state machine that is fed pointer and key events and never
-  touches the screen.
+- `src/tools` holds the tools: Select, Board, Cabinet, Pull, Move, Rotate, and
+  Tape. Each one is a small state machine that is fed pointer and key events
+  and never touches the screen.
 - `src/viewport` holds the 3D view. Camera math lives in `camera-math.ts`, apart
   from the code that listens to the mouse and touch screen.
 - `src/app` holds the panels and controls around the view, and the reading and

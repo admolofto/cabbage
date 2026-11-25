@@ -1,10 +1,9 @@
-import { boxMax, type Box } from '../core/board';
+import { boxMax, type Board, type Box } from '../core/board';
 import {
   CABINET_KIND_NAMES,
   cabinetBoards,
   cabinetBox,
   moveCabinet,
-  ownerId,
   resizeCabinet,
   usualElevation,
   usualSize,
@@ -12,7 +11,7 @@ import {
   type CabinetKind,
   type CabinetSize,
 } from '../core/cabinet';
-import { modelBoards, replaceCabinets, type CabbageDocument } from '../core/document';
+import { replaceCabinets, type CabbageDocument } from '../core/document';
 import type { Editor } from '../core/editor';
 import { parseLengthList } from '../core/parse-length';
 import { formatLength } from '../core/units';
@@ -45,6 +44,30 @@ interface LastPlaced {
   heldRight: boolean;
   /** The model as it stood with this cabinet in it. Any other change ends the chance to correct it. */
   document: CabbageDocument;
+}
+
+/**
+ * What a cabinet being placed snaps to: boards that stand alone as they are,
+ * and each cabinet as the plain box around it. A cabinet is set against the
+ * outside of its neighbors, so the corners of their boards, a back's width
+ * apart from the corners of the case, would only pull it out of line.
+ */
+const outlineCache = new WeakMap<CabbageDocument, readonly Board[]>();
+
+function outlines(document: CabbageDocument): readonly Board[] {
+  if (document.cabinets.length === 0) return document.boards;
+  let boards = outlineCache.get(document);
+  if (!boards) {
+    boards = [
+      ...document.boards,
+      ...document.cabinets.map((cabinet): Board => {
+        const { id, name, materialId } = cabinet;
+        return { id, name, materialId, thicknessAxis: 2, ...cabinetBox(cabinet) };
+      }),
+    ];
+    outlineCache.set(document, boards);
+  }
+  return boards;
 }
 
 function overlaps(a: Box, b: Box): boolean {
@@ -170,7 +193,7 @@ export class CabinetTool implements Tool {
   /** Works out where a click would put a cabinet. */
   private aim(pointer: ToolPointer): void {
     const { document, units, cabinetKind } = this.editor.getState();
-    const solids = modelBoards(document);
+    const solids = outlines(document);
     const snap = findSnap(solids, pointer.view, undefined, document.guides);
     this.ghost = null;
     this.marker = null;
@@ -199,9 +222,8 @@ export class CabinetTool implements Tool {
 
     // Snapped to something it would land inside of, the cabinet goes to the other side of the point.
     if (!isDefinite(snap) || snap.boardId === undefined) return;
-    const owner = ownerId(snap.boardId);
-    const blocked = (candidate: Cabinet) =>
-      solids.some((board) => ownerId(board.id) === owner && overlaps(board, cabinetBox(candidate)));
+    const target = solids.find((board) => board.id === snap.boardId);
+    const blocked = (candidate: Cabinet) => target !== undefined && overlaps(target, cabinetBox(candidate));
     if (!blocked(cabinet)) return;
     const flipped = moveCabinet(cabinet, [-cabinet.width, 0, 0]);
     if (!blocked(flipped)) this.ghost = { cabinet: flipped, heldRight: true };

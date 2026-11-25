@@ -43,10 +43,10 @@ export function StockPicker({ editor, stock, materials, units, cabinetKind }: St
 
   return (
     <div className="stockbar">
-      {cabinetKind !== null && (
-        <div className="stock-row" role="group" aria-label="Kind of cabinet">
-          <span className="readout-label">Cabinet</span>
-          <div className="segmented">
+      <div className="stock-row" role="group" aria-label={heading}>
+        <span className="readout-label">{heading}</span>
+        {cabinetKind !== null && (
+          <div className="segmented" role="group" aria-label="Kind of cabinet">
             {CABINET_KINDS.map((kind) => (
               <button
                 key={kind}
@@ -58,10 +58,7 @@ export function StockPicker({ editor, stock, materials, units, cabinetKind }: St
               </button>
             ))}
           </div>
-        </div>
-      )}
-      <div className="stock-row" role="group" aria-label={heading}>
-        <span className="readout-label">{heading}</span>
+        )}
         <select
           aria-label={cabinetKind === null ? 'Material for new boards' : 'Material for new cabinets'}
           value={stock.materialId}

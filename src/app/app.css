@@ -500,8 +500,11 @@ kbd {
 
 @container view (max-height: 620px) {
   .toolrail {
+    /* Too short to center: hang the rail just under the stock picker. */
+    top: 68px;
     display: grid;
     grid-template-columns: repeat(2, 44px);
+    transform: none;
   }
 
   .tool-button[data-divided] {
@@ -869,6 +872,7 @@ kbd {
 
 .stock-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   align-self: flex-start;
@@ -1041,8 +1045,9 @@ kbd {
 }
 
 .unlock-button {
-  align-self: flex-start;
-  margin-left: -11px;
+  align-self: stretch;
+  border-color: var(--rule);
+  color: var(--ink);
 }
 
 .inspector-size {
