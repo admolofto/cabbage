@@ -1,0 +1,49 @@
+name: Preview
+
+# Publishes a build you can open in a browser:
+#   main          -> https://<owner>.github.io/<repo>/
+#   pull requests -> https://<owner>.github.io/<repo>/pr-preview/pr-<number>/
+# Both live on the gh-pages branch. A pull request's preview is removed when it closes.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+
+# Every run writes to the same branch, so they take turns.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    # Pull requests from forks get a read-only token and cannot publish.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Build
+        if: github.event.action != 'closed'
+        run: |
+          npm ci
+          npm run build
+      - name: Publish main
+        if: github.event_name == 'push'
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: dist
+          clean-exclude: pr-preview/
+      - name: Publish pull request preview
+        if: github.event_name == 'pull_request'
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: dist
