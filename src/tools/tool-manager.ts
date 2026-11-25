@@ -1,6 +1,10 @@
 import type { Editor, ToolId } from '../core/editor';
 import { BoardTool } from './board-tool';
+import { MoveTool } from './move-tool';
+import { PullTool } from './pull-tool';
+import { RotateTool } from './rotate-tool';
 import { SelectTool } from './select-tool';
+import { TapeTool } from './tape-tool';
 import { NO_PREVIEW, type Tool, type ToolPointer, type ToolPreview } from './tool';
 
 /** A key press, reduced to what matters here. `command` is Ctrl, or Cmd on a Mac. */
@@ -14,12 +18,16 @@ export interface KeyInput {
 const TOOL_KEYS: Record<string, ToolId> = {
   ' ': 'select',
   b: 'board',
+  p: 'pull',
+  m: 'move',
+  r: 'rotate',
+  t: 'tape',
   o: 'orbit',
   h: 'pan',
 };
 
-/** Keys that begin a typed measurement. Once one has begun, any character is taken. */
-const STARTS_MEASUREMENT = /^[0-9.,]$/;
+/** Keys that begin typed input for a tool. Once it has begun, any character is taken. */
+const STARTS_MEASUREMENT = /^[0-9.,=/x*-]$/i;
 
 /**
  * Owns the drawing tools and sends pointer and key input to whichever one is
@@ -34,7 +42,14 @@ export class ToolManager {
   private readonly listeners = new Set<() => void>();
 
   constructor(private readonly editor: Editor) {
-    this.tools = { select: new SelectTool(editor), board: new BoardTool(editor) };
+    this.tools = {
+      select: new SelectTool(editor),
+      board: new BoardTool(editor),
+      pull: new PullTool(editor),
+      move: new MoveTool(editor),
+      rotate: new RotateTool(editor),
+      tape: new TapeTool(editor),
+    };
     const state = editor.getState();
     this.activeId = state.tool;
     let units = state.units;
@@ -115,6 +130,9 @@ export class ToolManager {
     const tool = this.active();
     const lower = key.toLowerCase();
 
+    // Ctrl on its own is a key for the tool, such as switching Move to copy.
+    if (key === 'Control' || key === 'Meta') return tool?.keyDown('Control') ?? false;
+
     if (command) {
       if (lower === 'z' || lower === 'y') {
         editor.setTyped(null);
@@ -125,15 +143,21 @@ export class ToolManager {
       }
       if (lower === 'a') {
         editor.setTool('select');
-        editor.setSelection(editor.getState().document.boards.map((board) => board.id));
+        const { boards, guides } = editor.getState().document;
+        editor.setSelection([...boards, ...guides].map((item) => item.id));
         return true;
       }
       return false;
     }
     if (alt) return false;
 
-    const { typed } = editor.getState().measurement;
+    const { typed, error } = editor.getState().measurement;
     if (typed !== null) {
+      // Text that was just turned down is replaced by the next thing typed, not added to.
+      if (error && STARTS_MEASUREMENT.test(key)) {
+        editor.setTyped(key);
+        return true;
+      }
       if (key === 'Enter') {
         this.applyTyped();
       } else if (key === 'Escape') {

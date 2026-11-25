@@ -8,6 +8,7 @@
   --accent-wash: #e2eed8;
   --axis-x: #c4513a;
   --axis-y: #4f8f3a;
+  --axis-z: #3b76b8;
   --highlight: #1c64d1;
   --danger: #b3261e;
   --shadow: 0 1px 2px rgb(31 43 36 / 8%), 0 8px 24px rgb(31 43 36 / 10%);
@@ -262,11 +263,67 @@ kbd {
   height: 100%;
 }
 
+.overlay-lines line {
+  fill: none;
+  stroke-linecap: round;
+}
+
+/* Guides: thin dashed lines with no ends. */
 .overlay-guide {
+  stroke: #6b5ca5;
+  stroke-width: 1.25;
+  stroke-dasharray: 7 5;
+}
+
+.overlay-guide.hovered,
+.overlay-guide.selected {
+  stroke: var(--highlight);
+  stroke-width: 2;
+  opacity: 1;
+}
+
+.overlay-guide.pending {
+  stroke: var(--highlight);
+  stroke-width: 1.5;
+}
+
+/* The line a tool is working along, colored like the axis it follows. */
+.overlay-line {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+
+.overlay-line.axis-0 {
+  stroke: var(--axis-x);
+  stroke-width: 2;
+}
+
+.overlay-line.axis-1 {
+  stroke: var(--axis-y);
+  stroke-width: 2;
+}
+
+.overlay-line.axis-2 {
+  stroke: var(--axis-z);
+  stroke-width: 2;
+}
+
+/* The dotted line back to whatever a point is lined up with. */
+.overlay-alignment {
   stroke: var(--ink);
   stroke-width: 1;
   stroke-dasharray: 2 4;
   opacity: 0.7;
+}
+
+.select-rect {
+  position: absolute;
+  background: rgb(28 100 209 / 8%);
+  border: 1px solid var(--highlight);
+}
+
+.select-rect[data-crossing] {
+  border-style: dashed;
 }
 
 .snap-marker,
@@ -297,6 +354,22 @@ kbd {
   --snap: #c98a00;
 }
 
+.snap-marker[data-kind='guide'],
+.snap-marker[data-kind='intersection'] {
+  --snap: #6b5ca5;
+}
+
+.snap-marker[data-kind='axis'] {
+  --snap: var(--ink);
+}
+
+.snap-marker[data-kind='axis'] i {
+  width: 7px;
+  height: 7px;
+  margin-left: -3.5px;
+  border-width: 1px;
+}
+
 .snap-marker i {
   flex: none;
   width: 11px;
@@ -308,8 +381,14 @@ kbd {
   box-shadow: 0 0 0 1px var(--snap);
 }
 
-.snap-marker[data-kind='edge'] i {
+.snap-marker[data-kind='edge'] i,
+.snap-marker[data-kind='guide'] i {
   border-radius: 2px;
+}
+
+.snap-marker[data-kind='intersection'] i {
+  border-radius: 0;
+  rotate: 45deg;
 }
 
 /* A point lined up with something elsewhere is drawn hollow. */
@@ -374,7 +453,7 @@ kbd {
   display: grid;
   place-items: center;
   width: 44px;
-  height: 44px;
+  height: 42px;
   padding: 0;
   background: transparent;
   border: 0;
@@ -525,6 +604,11 @@ kbd {
   margin-left: 4px;
   letter-spacing: 0;
   text-transform: none;
+}
+
+.help-card p:not(.help-note) {
+  margin: 0;
+  color: var(--ink-soft);
 }
 
 .help-card ol {
@@ -680,5 +764,13 @@ kbd {
   .view-button {
     min-width: 44px;
     padding: 0 8px;
+  }
+}
+
+/* Short screens: keep all the tools in reach. */
+
+@media (max-height: 620px) {
+  .tool-button {
+    height: 34px;
   }
 }

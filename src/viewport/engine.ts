@@ -1,7 +1,9 @@
 import { PerspectiveCamera, Vector3, WebGLRenderer } from 'three';
+import type { Box } from '../core/board';
 import type { Editor } from '../core/editor';
 import { chooseGridSteps } from '../core/grid';
 import { NM_PER_MM, mm, toMm, type Length } from '../core/units';
+import type { Vec3L } from '../core/vec';
 import { DEFAULT_SNAP_TOLERANCE, toMillimeters } from '../inference/inference';
 import type { ToolPointer } from '../tools/tool';
 import type { ToolManager } from '../tools/tool-manager';
@@ -15,7 +17,7 @@ import {
   worldPerPixel,
   type ViewName,
 } from './camera-math';
-import { ViewportOverlay } from './overlay';
+import { ViewportOverlay, type ScreenPoint } from './overlay';
 import { ViewportScene } from './scene';
 
 export interface FloorPoint {
@@ -34,6 +36,9 @@ const FIELD_OF_VIEW = 32;
 const FIT_MARGIN = 1.2;
 /** A fingertip covers more than a mouse pointer, so it reaches further for snaps. */
 const TOUCH_SNAP_TOLERANCE = 18;
+const NO_OVERRIDES: ReadonlyMap<string, Box> = new Map();
+/** Guides have no ends. This is how far each way they are drawn, in millimeters. */
+const GUIDE_REACH = 1_000_000;
 
 interface Cursor {
   clientX: number;
@@ -194,8 +199,8 @@ export class ViewportEngine {
 
     const { scene, camera, controller } = this;
     const state = this.editor.getState();
-    this.syncModel();
     const preview = this.tools.preview();
+    this.syncModel(preview.overrides);
     scene.setPreview(preview);
     this.container.dataset.tool = state.tool;
 
@@ -212,13 +217,16 @@ export class ViewportEngine {
     }
 
     this.renderer.render(scene.scene, camera);
-    this.overlay.update(preview, (point) => this.project(toMillimeters(point)));
+    this.overlay.update(
+      { preview, guides: state.document.guides, selection: state.selection, hovered: state.hovered },
+      { point: (point) => this.project(toMillimeters(point)), segment: this.projectSegment, reach: GUIDE_REACH },
+    );
     this.rendering = false;
   };
 
-  private syncModel(): void {
+  private syncModel(overrides: ReadonlyMap<string, Box> = NO_OVERRIDES): void {
     const { document, selection, hovered } = this.editor.getState();
-    this.scene.setBoards(document.boards, selection, hovered);
+    this.scene.setBoards(document.boards, selection, hovered, overrides);
   }
 
   private framedDistance(): number {
@@ -254,6 +262,26 @@ export class ViewportEngine {
     if (v.z > -1e-3) return null;
     v.applyMatrix4(camera.projectionMatrix);
     return { x: ((v.x + 1) / 2) * this.width, y: ((1 - v.y) / 2) * this.height };
+  };
+
+  /**
+   * Where a line between two model points lands on screen, or null when all of
+   * it is behind the camera. A line that passes behind the camera is cut off
+   * just in front of it, because a point behind the camera has no place on screen.
+   */
+  private readonly projectSegment = (from: Vec3L, to: Vec3L): [ScreenPoint, ScreenPoint] | null => {
+    const { camera } = this;
+    const limit = -Math.max(camera.near, 1e-3);
+    const a = toMillimeters(from).applyMatrix4(camera.matrixWorldInverse);
+    const b = toMillimeters(to).applyMatrix4(camera.matrixWorldInverse);
+    if (a.z > limit && b.z > limit) return null;
+    if (a.z > limit) a.lerp(b, (limit - a.z) / (b.z - a.z));
+    else if (b.z > limit) b.lerp(a, (limit - b.z) / (a.z - b.z));
+    const onScreen = (v: Vector3): ScreenPoint => {
+      v.applyMatrix4(camera.projectionMatrix);
+      return { x: ((v.x + 1) / 2) * this.width, y: ((1 - v.y) / 2) * this.height };
+    };
+    return [onScreen(a), onScreen(b)];
   };
 
   // Pointer input

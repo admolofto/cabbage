@@ -1,13 +1,14 @@
 import { boxFromCorners, type Board, type Box } from '../core/board';
 import { createId, nextBoardName, type CabbageDocument } from '../core/document';
-import { defaultThickness, dragStep, roundSteps, type Editor } from '../core/editor';
+import { defaultThickness, type Editor } from '../core/editor';
 import { parseLength, parseLengthList } from '../core/parse-length';
 import { formatLength, type Length } from '../core/units';
 import { AXIS_NAMES, otherAxes, withAxis, type Axis, type Vec3L } from '../core/vec';
 import { findSnap, toMillimeters, type Snap } from '../inference/inference';
+import { DRAG_THRESHOLD, quantize, sign, stepNear } from './steps';
 import {
   NO_PREVIEW,
-  snapLabel,
+  markerFor,
   type DimensionLabel,
   type SnapMarker,
   type Tool,
@@ -68,13 +69,8 @@ interface LastBoard {
   document: CabbageDocument;
 }
 
-const DRAG_THRESHOLD = 6;
 const DEFAULT_HOLD = 4;
 const DETENT_PIXELS = 7;
-/** A dragged length lands on the roundest step that is no wider than this on screen. */
-const MAX_STEP_PIXELS = 8;
-/** Length used to measure how big the model is on screen near a point: 100 mm. */
-const PROBE: Length = 100_000_000;
 
 const HINTS = {
   idle: 'Click to place the first corner of a board.',
@@ -82,12 +78,9 @@ const HINTS = {
   thickness: 'Move to set the thickness and click, or type one. Enter keeps the thickness shown.',
 } as const;
 
-function quantize(value: Length, step: Length): Length {
-  return Math.round(value / step) * step;
-}
-
-function sign(value: number): 1 | -1 {
-  return value < 0 ? -1 : 1;
+/** True for a point along an edge or a guide, which is free in one direction. */
+function onLine(snap: Snap): boolean {
+  return snap.kind === 'edge' || snap.kind === 'guide';
 }
 
 export class BoardTool implements Tool {
@@ -273,14 +266,14 @@ export class BoardTool implements Tool {
       const dimensions: DimensionLabel[] = [];
       if (corner[u] !== start[u]) dimensions.push({ from: start, to: alongU, text: this.format(corner[u] - start[u]) });
       if (corner[v] !== start[v]) dimensions.push({ from: alongU, to: corner, text: this.format(corner[v] - start[v]) });
-      return { marker: this.marker, outline: [start, alongU, corner, alongV], box: null, dimensions };
+      return { ...NO_PREVIEW, marker: this.marker, outline: [start, alongU, corner, alongV], dimensions };
     }
     const box = this.solid(phase.face, phase.axis, phase.thickness);
     const top = withAxis(phase.anchor, phase.axis, phase.anchor[phase.axis] + phase.thickness);
     return {
+      ...NO_PREVIEW,
       marker: this.marker,
-      outline: null,
-      box,
+      boxes: [box],
       dimensions: [{ from: phase.anchor, to: top, text: this.format(phase.thickness) }],
     };
   }
@@ -289,7 +282,7 @@ export class BoardTool implements Tool {
 
   private moveIdle(pointer: ToolPointer): void {
     const { document } = this.editor.getState();
-    let snap = findSnap(document.boards, pointer.view);
+    let snap = findSnap(document.boards, pointer.view, undefined, document.guides);
     if (snap && (snap.kind === 'floor' || snap.kind === 'face')) {
       // A free point lands on round numbers, so drawn positions and sizes come out clean.
       let point = snap.point;
@@ -297,32 +290,33 @@ export class BoardTool implements Tool {
         point = withAxis(point, along, quantize(point[along], this.stepNear(pointer, snap.point, along)));
       }
       snap = { ...snap, point };
-    } else if (snap && snap.kind === 'edge' && snap.edgeAxis !== undefined) {
+    } else if (snap && onLine(snap) && snap.edgeAxis !== undefined) {
       // Along an edge the point is free in one direction, and gets round numbers there too.
       const along = snap.edgeAxis;
       const rounded = quantize(snap.point[along], this.stepNear(pointer, snap.point, along));
       snap = { ...snap, point: withAxis(snap.point, along, rounded) };
     }
     this.hover = snap;
-    this.marker = this.markerFor(snap);
+    this.marker = markerFor(snap);
   }
 
   private moveFace(phase: FacePhase, pointer: ToolPointer): void {
     const { document } = this.editor.getState();
     const axis = phase.lockedAxis ?? phase.autoAxis;
-    const snap = findSnap(document.boards, pointer.view, { kind: 'plane', axis, value: phase.start[axis] });
+    const constraint = { kind: 'plane', axis, value: phase.start[axis] } as const;
+    const snap = findSnap(document.boards, pointer.view, constraint, document.guides);
     if (!snap) return;
     let corner = snap.point;
     // Whatever the snap left free lands on round sizes: both directions of a
     // free point, or the one direction along an edge.
-    const free = snap.kind === 'free' ? otherAxes(axis) : snap.kind === 'edge' ? [snap.edgeAxis] : [];
+    const free = snap.kind === 'free' ? otherAxes(axis) : onLine(snap) ? [snap.edgeAxis] : [];
     for (const along of free) {
       if (along === undefined || along === axis) continue;
       const step = this.stepNear(pointer, snap.point, along);
       corner = withAxis(corner, along, phase.start[along] + quantize(corner[along] - phase.start[along], step));
     }
     phase.corner = corner;
-    this.marker = this.markerFor(snap);
+    this.marker = markerFor(snap);
   }
 
   private finishFace(phase: FacePhase, pointer: ToolPointer): void {
@@ -365,12 +359,12 @@ export class BoardTool implements Tool {
 
     const { document, units } = this.editor.getState();
     const { axis, anchor } = phase;
-    const snap = findSnap(document.boards, pointer.view, { kind: 'line', axis, through: anchor });
+    const snap = findSnap(document.boards, pointer.view, { kind: 'line', axis, through: anchor }, document.guides);
     if (!snap) return;
     let thickness = snap.point[axis] - anchor[axis];
-    this.marker = this.markerFor(snap);
+    this.marker = markerFor(snap);
 
-    if (snap.kind === 'free' || (snap.kind === 'edge' && snap.edgeAxis === axis)) {
+    if (snap.kind === 'free' || (onLine(snap) && snap.edgeAxis === axis)) {
       thickness = quantize(thickness, this.stepNear(pointer, snap.point, axis));
       // The usual sheet thickness is easy to land on: the cursor sticks to it when close.
       const usual = sign(thickness || phase.thickness) * defaultThickness(units);
@@ -405,20 +399,8 @@ export class BoardTool implements Tool {
 
   // Helpers
 
-  /**
-   * The roundest step a drag along an axis can land on while still following
-   * the cursor closely. Zoomed out that is a whole inch or 10 mm. Zooming in
-   * brings finer steps, down to the display precision.
-   */
   private stepNear(pointer: ToolPointer, point: Vec3L, axis: Axis): Length {
-    const { units } = this.editor.getState();
-    const { project } = pointer.view;
-    const here = project(toMillimeters(point));
-    const there = project(toMillimeters(withAxis(point, axis, point[axis] + PROBE)));
-    if (!here || !there) return dragStep(units);
-    const pixelsPerUnit = Math.hypot(there.x - here.x, there.y - here.y) / PROBE;
-    const steps = roundSteps(units);
-    return steps.find((step) => step * pixelsPerUnit <= MAX_STEP_PIXELS) ?? steps[steps.length - 1]!;
+    return stepNear(this.editor.getState().units, pointer, point, axis);
   }
 
   /** Gives a flat face its thickness, growing in the direction of the sign. */
@@ -434,13 +416,6 @@ export class BoardTool implements Tool {
   private correctable(): LastBoard | null {
     const last = this.lastBoard;
     return last && last.document === this.editor.getState().document ? last : null;
-  }
-
-  private markerFor(snap: Snap | null): SnapMarker | null {
-    if (!snap) return null;
-    const label = snapLabel(snap.kind, snap.aligned);
-    if (label === '' || snap.kind === 'face') return null;
-    return { point: snap.point, kind: snap.kind, label, source: snap.source ?? null };
   }
 
   private format(length: Length): string {

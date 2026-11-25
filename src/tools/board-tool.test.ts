@@ -228,6 +228,17 @@ describe('typed measurements', () => {
     expect(measurement().label).toBe('Thickness');
   });
 
+  it('starts over when a number is typed after text it could not read', () => {
+    click([0, 0, 0]);
+    move([inch(5), inch(3), 0]);
+    type('24, abc');
+    key('Enter');
+    type('30, 12');
+    expect(measurement()).toMatchObject({ typed: '30, 12', error: false });
+    key('Enter');
+    expect(measurement().label).toBe('Thickness');
+  });
+
   it('drops half typed text on Escape without leaving the step', () => {
     click([0, 0, 0]);
     move([inch(5), inch(3), 0]);
