@@ -1,13 +1,13 @@
 import type { Guide } from '../core/document';
 import { withAxis, type Axis, type Vec3L } from '../core/vec';
 import type { ToolPreview } from '../tools/tool';
+import type { ScreenPoint } from './clip';
 
-export type ScreenPoint = { x: number; y: number };
 
 /** How the overlay turns model points into screen points. */
 export interface Projection {
   point: (point: Vec3L) => ScreenPoint | null;
-  /** A line between two points, cut off where it passes behind the camera. */
+  /** A line between two points, cut down to the part that is in front of the camera and in view. */
   segment: (from: Vec3L, to: Vec3L) => [ScreenPoint, ScreenPoint] | null;
   /** How far each way a guide is drawn, in millimeters. */
   reach: number;

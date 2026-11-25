@@ -109,6 +109,9 @@ Tested in `edit-tools.test.ts` unless a note says otherwise.
   Select and delete them like boards. Tested in `inference.test.ts`.
 - **Guides are never hidden.** They are drawn over the model so one behind a
   cabinet can still be found.
+- **Guides must not slow the view.** A guide is drawn only where it is in view.
+  The first build handed the browser the whole kilometer of dashed line, and
+  placing a guide lagged badly (reported 2026-11-24). Tested in `clip.test.ts`.
 
 ## Selecting
 

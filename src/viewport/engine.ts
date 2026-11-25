@@ -17,7 +17,8 @@ import {
   worldPerPixel,
   type ViewName,
 } from './camera-math';
-import { ViewportOverlay, type ScreenPoint } from './overlay';
+import { clipToView, type ScreenPoint } from './clip';
+import { ViewportOverlay } from './overlay';
 import { ViewportScene } from './scene';
 
 export interface FloorPoint {
@@ -281,7 +282,8 @@ export class ViewportEngine {
       v.applyMatrix4(camera.projectionMatrix);
       return { x: ((v.x + 1) / 2) * this.width, y: ((1 - v.y) / 2) * this.height };
     };
-    return [onScreen(a), onScreen(b)];
+    // Only the part in view is handed on. See clipToView for why that matters.
+    return clipToView(onScreen(a), onScreen(b), this.width, this.height);
   };
 
   // Pointer input
