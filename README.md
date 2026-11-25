@@ -16,8 +16,8 @@ Early development. Nothing here is usable for real projects yet.
 
 The first usable version is a board modeler with a correct cut list:
 
-1. **Viewport.** 3D view with a floor grid, orbit, pan, zoom, and units.
-2. **Draw boards.** Board tool, typed measurements, snapping, undo.
+1. **Viewport.** 3D view with a floor grid, orbit, pan, zoom, and units. Done.
+2. **Draw boards.** Board tool, typed measurements, snapping, undo. In review.
 3. **Edit boards.** Pull, move, rotate, full inference, guides, measuring.
 4. **Cut list.** Materials, grain, edge banding, cut list export, save and open.
 
@@ -42,10 +42,18 @@ To try a build without a server, run `npm run build:standalone`. It writes
 The code is layered so the parts that matter most can be tested without a
 browser:
 
-- `src/core` holds exact units and other pure model code.
+- `src/core` holds the model: exact units, boards, the document, undo history,
+  typed measurement parsing, and the editor that ties them together.
+- `src/inference` decides what the cursor snaps to: corners, midpoints, edges,
+  faces, and the floor.
+- `src/tools` holds the drawing tools. Each one is a small state machine that is
+  fed pointer and key events and never touches the screen.
 - `src/viewport` holds the 3D view. Camera math lives in `camera-math.ts`, apart
   from the code that listens to the mouse and touch screen.
 - `src/app` holds the panels and controls around the view.
+
+The model is saved in the browser's own storage as you work. Saving to a file
+comes with milestone 4.
 
 Notes on how the controls should feel, and why, are kept in
 [docs/feel-notes.md](docs/feel-notes.md).

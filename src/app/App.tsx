@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { boardDimensions } from '../core/board';
+import type { Editor, EditorState, ToolId } from '../core/editor';
+import { createSampleCabinet } from '../core/sample-cabinet';
 import {
   IMPERIAL_PRECISIONS,
   METRIC_PRECISIONS,
@@ -11,29 +14,49 @@ import {
   type MetricPrecision,
   type UnitSettings,
 } from '../core/units';
-import type { NavigationTool } from '../viewport/camera-controller';
+import type { ToolManager } from '../tools/tool-manager';
 import type { ViewName } from '../viewport/camera-math';
-import { Viewport, type FloorPoint, type ViewportHandle } from '../viewport/Viewport';
-import { CloseIcon, FitIcon, HelpIcon, LogoMark, OrbitIcon, PanIcon } from './icons';
-import { useUnitSettings } from './use-unit-settings';
+import type { FloorPoint } from '../viewport/engine';
+import { Viewport, type ViewportHandle } from '../viewport/Viewport';
+import {
+  BoardIcon,
+  CloseIcon,
+  FitIcon,
+  HelpIcon,
+  LogoMark,
+  OrbitIcon,
+  PanIcon,
+  RedoIcon,
+  SelectIcon,
+  UndoIcon,
+} from './icons';
 
 const HELP_SEEN_KEY = 'cabbage.help-seen';
+/** Changes when the controls change enough that the card is worth showing once more. */
+const HELP_VERSION = 'draw-boards';
 
-const VIEWS: readonly { view: ViewName; label: string; key: string }[] = [
-  { view: 'front', label: 'Front', key: '1' },
-  { view: 'right', label: 'Right', key: '2' },
-  { view: 'top', label: 'Top', key: '3' },
-  { view: 'home', label: 'Home', key: '4' },
+const VIEWS: readonly { view: ViewName; label: string }[] = [
+  { view: 'front', label: 'Front' },
+  { view: 'right', label: 'Right' },
+  { view: 'top', label: 'Top' },
+  { view: 'home', label: 'Home' },
 ];
 
-const TOOL_HINTS: Record<NavigationTool, string> = {
+const TOOLS: readonly { id: ToolId; label: string; key: string; Icon: () => React.JSX.Element }[] = [
+  { id: 'select', label: 'Select', key: 'Space', Icon: SelectIcon },
+  { id: 'board', label: 'Board', key: 'B', Icon: BoardIcon },
+  { id: 'orbit', label: 'Orbit', key: 'O', Icon: OrbitIcon },
+  { id: 'pan', label: 'Pan', key: 'H', Icon: PanIcon },
+];
+
+const NAVIGATION_HINTS: Partial<Record<ToolId, string>> = {
   orbit: 'Drag to orbit. Scroll to zoom toward the cursor. Hold Shift and drag to pan.',
   pan: 'Drag to pan. Scroll to zoom toward the cursor.',
 };
 
 function helpSeenBefore(): boolean {
   try {
-    return window.localStorage.getItem(HELP_SEEN_KEY) === 'yes';
+    return window.localStorage.getItem(HELP_SEEN_KEY) === HELP_VERSION;
   } catch {
     return false;
   }
@@ -47,42 +70,89 @@ function isTypingTarget(target: EventTarget | null): boolean {
   );
 }
 
-export function App() {
-  const [units, updateUnits] = useUnitSettings();
-  const [tool, setTool] = useState<NavigationTool>('orbit');
+/** What the measurement box shows: the active tool's own reading, or the size of the selection. */
+function measurementFor(state: EditorState): { label: string; value: string } {
+  if (state.tool === 'board') return state.measurement;
+  const { selection, document, units } = state;
+  if (selection.size === 1) {
+    const board = document.boards.find((candidate) => selection.has(candidate.id));
+    if (board) {
+      const { length, width, thickness } = boardDimensions(board);
+      const sizes = [length, width, thickness].map((size) => formatLength(size, units));
+      return { label: board.name, value: sizes.join(' x ') };
+    }
+  }
+  if (selection.size > 1) return { label: 'Selected', value: `${selection.size} boards` };
+  return { label: 'Measurement', value: '' };
+}
+
+interface AppProps {
+  editor: Editor;
+  tools: ToolManager;
+}
+
+export function App({ editor, tools }: AppProps) {
+  const state = useSyncExternalStore(editor.subscribe, editor.getState);
   const [floorPoint, setFloorPoint] = useState<FloorPoint | null>(null);
   const [gridMinor, setGridMinor] = useState<Length | null>(null);
   const [helpOpen, setHelpOpen] = useState(() => !helpSeenBefore());
   const viewportRef = useRef<ViewportHandle>(null);
+  const { units, tool } = state;
 
   const closeHelp = useCallback(() => {
     setHelpOpen(false);
     try {
-      window.localStorage.setItem(HELP_SEEN_KEY, 'yes');
+      window.localStorage.setItem(HELP_SEEN_KEY, HELP_VERSION);
     } catch {
       // Storage can be unavailable. The card simply shows again next visit.
     }
   }, []);
 
+  const addSampleCabinet = useCallback(() => {
+    editor.addBoards(createSampleCabinet(), 'Add sample cabinet');
+    viewportRef.current?.fit();
+  }, [editor]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) return;
-      const key = event.key.toLowerCase();
-      if (key === 'o') setTool('orbit');
-      else if (key === 'h') setTool('pan');
-      else if (key === 'f') viewportRef.current?.fit();
-      else if (key === '?') setHelpOpen((open) => !open);
-      else if (key === 'escape') closeHelp();
-      else {
-        const match = VIEWS.find((entry) => entry.key === key);
-        if (!match) return;
-        viewportRef.current?.showView(match.view);
+      if (isTypingTarget(event.target)) return;
+      // A focused button keeps Space and Enter for itself.
+      if (event.target instanceof HTMLButtonElement && (event.key === ' ' || event.key === 'Enter')) return;
+
+      const command = event.ctrlKey || event.metaKey;
+      const typing = editor.getState().measurement.typed !== null;
+      let used: boolean;
+      if (!command && !event.altKey && !typing && event.key === '?') {
+        setHelpOpen((open) => !open);
+        used = true;
+      } else {
+        used = tools.key({ key: event.key, command, shift: event.shiftKey, alt: event.altKey });
       }
-      event.preventDefault();
+      if (!used && !command && !event.altKey) {
+        if (event.key.toLowerCase() === 'f') {
+          viewportRef.current?.fit();
+          used = true;
+        } else if (event.key === 'Escape') {
+          closeHelp();
+          used = true;
+        }
+      }
+      if (used) event.preventDefault();
     };
+
+    // A button clicked with the mouse gives the keyboard back, so the next key goes to the tool.
+    const onClick = (event: MouseEvent) => {
+      const focused = document.activeElement;
+      if (event.detail > 0 && focused instanceof HTMLButtonElement) focused.blur();
+    };
+
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [closeHelp]);
+    window.addEventListener('click', onClick);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('click', onClick);
+    };
+  }, [editor, tools, closeHelp]);
 
   return (
     <div className="app">
@@ -90,10 +160,32 @@ export function App() {
         <div className="brand">
           <LogoMark />
           <span className="brand-name">Cabbage</span>
-          <span className="chip">Milestone 1 preview</span>
+          <span className="chip">Milestone 2 preview</span>
         </div>
         <div className="topbar-controls">
-          <UnitControls units={units} onChange={updateUnits} />
+          <div className="history-controls">
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Undo"
+              title={state.undoLabel ? `Undo ${state.undoLabel.toLowerCase()} (Ctrl+Z)` : 'Nothing to undo'}
+              disabled={!state.canUndo}
+              onClick={() => editor.undo()}
+            >
+              <UndoIcon />
+            </button>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Redo"
+              title={state.redoLabel ? `Redo ${state.redoLabel.toLowerCase()} (Ctrl+Shift+Z)` : 'Nothing to redo'}
+              disabled={!state.canRedo}
+              onClick={() => editor.redo()}
+            >
+              <RedoIcon />
+            </button>
+          </div>
+          <UnitControls units={units} onChange={(change) => editor.setUnits(change)} />
           <button
             type="button"
             className="icon-button"
@@ -110,39 +202,33 @@ export function App() {
       <main className="stage">
         <Viewport
           ref={viewportRef}
-          tool={tool}
-          unitSystem={units.system}
+          editor={editor}
+          tools={tools}
           onFloorPoint={setFloorPoint}
           onGridChange={setGridMinor}
         />
 
-        <nav className="toolrail" aria-label="Navigation tools">
-          <button
-            type="button"
-            className="tool-button"
-            aria-label="Orbit"
-            aria-pressed={tool === 'orbit'}
-            title="Orbit (O)"
-            onClick={() => setTool('orbit')}
-          >
-            <OrbitIcon />
-          </button>
-          <button
-            type="button"
-            className="tool-button"
-            aria-label="Pan"
-            aria-pressed={tool === 'pan'}
-            title="Pan (H)"
-            onClick={() => setTool('pan')}
-          >
-            <PanIcon />
-          </button>
-          <span className="toolrail-divider" />
+        <nav className="toolrail" aria-label="Tools">
+          {TOOLS.map(({ id, label, key, Icon }) => (
+            <button
+              key={id}
+              type="button"
+              className="tool-button"
+              aria-label={label}
+              aria-pressed={tool === id}
+              title={`${label} (${key})`}
+              data-divided={id === 'orbit' || undefined}
+              onClick={() => editor.setTool(id)}
+            >
+              <Icon />
+            </button>
+          ))}
           <button
             type="button"
             className="tool-button"
             aria-label="Fit model in view"
             title="Fit model in view (F)"
+            data-divided
             onClick={() => viewportRef.current?.fit()}
           >
             <FitIcon />
@@ -150,12 +236,12 @@ export function App() {
         </nav>
 
         <div className="viewbar" role="group" aria-label="Standard views">
-          {VIEWS.map(({ view, label, key }) => (
+          {VIEWS.map(({ view, label }) => (
             <button
               key={view}
               type="button"
               className="view-button"
-              title={`${label} view (${key})`}
+              title={`${label} view`}
               onClick={() => viewportRef.current?.showView(view)}
             >
               {label}
@@ -163,21 +249,34 @@ export function App() {
           ))}
         </div>
 
-        {helpOpen && <HelpCard onClose={closeHelp} />}
+        {state.document.boards.length === 0 && !helpOpen && tool !== 'board' && (
+          <div className="empty-card">
+            <p>
+              <strong>Nothing here yet.</strong> Press <kbd>B</kbd> and click two corners on the floor to draw a
+              board.
+            </p>
+            <button type="button" className="text-button" onClick={addSampleCabinet}>
+              Add a sample cabinet
+            </button>
+          </div>
+        )}
+
+        {helpOpen && <HelpCard onClose={closeHelp} onAddSample={addSampleCabinet} />}
       </main>
 
       <footer className="statusbar">
-        <span className="status-hint">{TOOL_HINTS[tool]}</span>
+        <span className="status-hint">{NAVIGATION_HINTS[tool] ?? state.hint}</span>
         <span className="status-readouts">
+          <MeasurementBox state={state} editor={editor} tools={tools} />
           {floorPoint && (
-            <span className="readout" title="Where the cursor meets the floor">
+            <span className="readout readout-floor" title="Where the cursor meets the floor">
               <span className="readout-label">Floor</span>
               <span className="axis-x">X</span> {formatLengthParts(floorPoint.x, units).text}
               <span className="axis-y">Y</span> {formatLengthParts(floorPoint.y, units).text}
             </span>
           )}
           {gridMinor !== null && (
-            <span className="readout" title="Spacing of the fine grid lines">
+            <span className="readout readout-grid" title="Spacing of the fine grid lines">
               <span className="readout-label">Grid</span>
               {formatLength(gridMinor, units)}
             </span>
@@ -185,6 +284,52 @@ export function App() {
         </span>
       </footer>
     </div>
+  );
+}
+
+interface MeasurementBoxProps {
+  state: EditorState;
+  editor: Editor;
+  tools: ToolManager;
+}
+
+/**
+ * Shows what the active tool is measuring. Typing anywhere on the page fills
+ * it, and it also works as an ordinary text box for a tablet's keyboard.
+ */
+function MeasurementBox({ state, editor, tools }: MeasurementBoxProps) {
+  const { label, value } = measurementFor(state);
+  const { typed, error } = state.measurement;
+  const drawing = state.tool === 'board';
+  return (
+    <label className="measure">
+      <span className="readout-label">{label}</span>
+      <input
+        className="measure-input"
+        type="text"
+        autoComplete="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        value={typed ?? value}
+        size={Math.max(14, (typed ?? value).length + 2)}
+        readOnly={!drawing}
+        data-typing={typed !== null || undefined}
+        data-error={error || undefined}
+        onFocus={(event) => event.currentTarget.select()}
+        onBlur={() => {
+          if (editor.getState().measurement.typed === '') editor.setTyped(null);
+        }}
+        onChange={(event) => editor.setTyped(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            if (tools.applyTyped()) event.currentTarget.blur();
+          } else if (event.key === 'Escape') {
+            editor.setTyped(null);
+            event.currentTarget.blur();
+          }
+        }}
+      />
+    </label>
   );
 }
 
@@ -239,54 +384,81 @@ function UnitControls({ units, onChange }: UnitControlsProps) {
   );
 }
 
-function HelpCard({ onClose }: { onClose: () => void }) {
+function HelpCard({ onClose, onAddSample }: { onClose: () => void; onAddSample: () => void }) {
   return (
     <aside className="help-card" aria-label="Controls">
       <header className="help-header">
-        <h2>Getting around</h2>
+        <h2>Controls</h2>
         <button type="button" className="icon-button" aria-label="Close" onClick={onClose}>
           <CloseIcon />
         </button>
       </header>
 
-      <h3>Mouse</h3>
+      <h3>
+        Draw a board <kbd>B</kbd>
+      </h3>
+      <ol>
+        <li>Click a corner, then click the opposite corner.</li>
+        <li>Move to set the thickness and click, or press Enter to keep the one shown.</li>
+      </ol>
+      <dl>
+        <dt>Type a size</dt>
+        <dd>
+          Type <kbd>24, 34 1/2</kbd> and press Enter. No need to click a box first. Right after a board is
+          drawn, typing <kbd>1/2</kbd> changes its thickness.
+        </dd>
+        <dt>Stand it up</dt>
+        <dd>
+          <kbd>→</kbd> <kbd>←</kbd> <kbd>↑</kbd> pick which way the board faces. <kbd>↓</kbd> goes back to
+          automatic.
+        </dd>
+        <dt>Back out</dt>
+        <dd>
+          <kbd>Esc</kbd> undoes one step of the drawing.
+        </dd>
+      </dl>
+
+      <h3>
+        Select <kbd>Space</kbd>
+      </h3>
+      <dl>
+        <dt>Pick</dt>
+        <dd>Click a board. Shift and click adds or removes one.</dd>
+        <dt>Delete</dt>
+        <dd>
+          <kbd>Delete</kbd> removes the selected boards.
+        </dd>
+        <dt>Undo</dt>
+        <dd>
+          <kbd>Ctrl</kbd> <kbd>Z</kbd>, and <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>Z</kbd> to redo.
+        </dd>
+      </dl>
+
+      <h3>Getting around</h3>
       <dl>
         <dt>Orbit</dt>
-        <dd>Drag with the middle button</dd>
+        <dd>
+          Drag with the middle button, or pick Orbit <kbd>O</kbd>
+        </dd>
         <dt>Pan</dt>
-        <dd>Shift and middle drag, or right drag</dd>
+        <dd>
+          Right drag, Shift and middle drag, or pick Pan <kbd>H</kbd>
+        </dd>
         <dt>Zoom</dt>
         <dd>Scroll. The view zooms toward the cursor</dd>
-        <dt>Left drag</dt>
-        <dd>Uses the tool picked on the left: Orbit or Pan</dd>
-      </dl>
-
-      <h3>Touch</h3>
-      <dl>
-        <dt>One finger</dt>
-        <dd>Uses the tool picked on the left</dd>
-        <dt>Two fingers</dt>
-        <dd>Drag to pan, pinch to zoom</dd>
-      </dl>
-
-      <h3>Keys</h3>
-      <dl>
-        <dt>
-          <kbd>O</kbd> <kbd>H</kbd>
-        </dt>
-        <dd>Orbit tool, Pan tool</dd>
-        <dt>
-          <kbd>F</kbd>
-        </dt>
-        <dd>Fit the model in view</dd>
-        <dt>
-          <kbd>1</kbd> to <kbd>4</kbd>
-        </dt>
-        <dd>Front, Right, Top, Home</dd>
+        <dt>Fit</dt>
+        <dd>
+          <kbd>F</kbd> brings the whole model into view
+        </dd>
+        <dt>Touch</dt>
+        <dd>One finger aims and places when it lifts. Two fingers pan and zoom.</dd>
       </dl>
 
       <p className="help-note">
-        The cabinet is a placeholder for judging scale. It is 30" wide, 34 1/2" tall, and 24" deep.
+        Want something to snap to?{' '}
+        <button type="button" className="text-button" onClick={onAddSample}>
+          Add a sample cabinet
+        </button>
       </p>
     </aside>
   );

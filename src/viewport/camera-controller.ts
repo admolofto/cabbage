@@ -35,7 +35,8 @@ interface PinchState {
 export interface CameraControllerOptions {
   /** Returns the world point a ray lands on, or null when it hits nothing useful. */
   pick: (ray: Ray) => Vector3 | null;
-  getTool: () => NavigationTool;
+  /** The navigation tool in use, or null when a plain left drag or single finger belongs to a drawing tool. */
+  getTool: () => NavigationTool | null;
   onChange: () => void;
 }
 
@@ -52,6 +53,8 @@ const VIEW_ANIMATION_MS = 240;
  * Mouse: middle drag orbits, Shift + middle drag or right drag pans, the wheel
  * zooms toward the cursor, and a left drag does whatever the active navigation
  * tool says. Touch: one finger uses the active tool, two fingers pan and pinch.
+ * When a drawing tool is active, the left button and a single finger are left
+ * alone for it.
  */
 export class CameraController {
   private pose: CameraPose;
@@ -214,7 +217,8 @@ export class CameraController {
     if (event.pointerType === 'touch') {
       this.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
       if (this.touches.size === 1) {
-        this.beginDrag(this.options.getTool(), event.pointerId, event.clientX, event.clientY);
+        const tool = this.options.getTool();
+        if (tool) this.beginDrag(tool, event.pointerId, event.clientX, event.clientY);
       } else if (this.touches.size === 2) {
         this.beginPinch();
       }
