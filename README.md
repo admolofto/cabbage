@@ -36,6 +36,9 @@ npm run dev        # start a local server
 npm run check      # type check, lint, test, and build
 ```
 
+To try a build without a server, run `npm run build:standalone`. It writes
+`dist-standalone/cabbage.html`, a single file that opens with a double-click.
+
 The code is layered so the parts that matter most can be tested without a
 browser:
 
